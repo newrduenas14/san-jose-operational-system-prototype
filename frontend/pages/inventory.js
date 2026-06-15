@@ -1,4 +1,4 @@
-import { inventorySnapshot, lookupScan } from "../js/api.js";
+import { inventorySnapshot, lookupScan } from "../js/api.js?v=phonefix1";
 import { handleKeyboardScan } from "../js/scanner.js";
 import { escapeHtml, table } from "../js/utils.js";
 
