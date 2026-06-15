@@ -1,6 +1,6 @@
 import { requirePermission } from "./permissions.js";
 import { numberValue, today, uid } from "./utils.js";
-import { GOOGLE_SCRIPT_WEB_APP_URL } from "./config.js";
+import { GOOGLE_SCRIPT_WEB_APP_URL } from "./config.js?v=phonefix2";
 
 const DB_KEY = "sjops.database.v1";
 let dbCache;
