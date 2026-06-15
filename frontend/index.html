@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>San Jose Operations Prototype</title>
+    <link rel="stylesheet" href="./css/styles.css">
+    <script src="https://unpkg.com/html5-qrcode" defer></script>
+    <script type="module" src="./js/app.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">SJ</span>
+          <div>
+            <strong>San Jose</strong>
+            <small>Operations Prototype</small>
+          </div>
+        </div>
+        <nav id="nav" class="nav"></nav>
+      </aside>
+
+      <main class="shell">
+        <header class="topbar">
+          <button id="menuToggle" class="icon-button" type="button" aria-label="Toggle menu">☰</button>
+          <div>
+            <h1 id="pageTitle">Dashboard</h1>
+            <p id="pageSubtitle">Spreadsheet-backed frontend prototype</p>
+          </div>
+          <div class="user-panel">
+            <label for="roleSelect">Role</label>
+            <select id="roleSelect"></select>
+          </div>
+        </header>
+
+        <section id="notice" class="notice" hidden></section>
+        <section id="view" class="view"></section>
+      </main>
+    </div>
+  </body>
+</html>
