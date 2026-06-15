@@ -1,26 +1,26 @@
 import { lookupScan } from "../js/api.js?v=phonefix2";
-import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=scanfix2";
+import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=scanfix3";
 import { escapeHtml, notice } from "../js/utils.js";
 
 export async function render(ctx) {
-  ctx.setTitle("Scanner Test", "Use camera QR scanning or a keyboard-style scanner");
+  ctx.setTitle("Scanner Test", "Point the phone camera at a QR code and the record opens");
   ctx.view.innerHTML = `
     <section class="panel">
       <div class="panel-header">
-        <h2>Scan Lookup</h2>
+        <h2>Camera Scanner</h2>
         <div class="actions">
-          <button id="startCamera" class="btn" type="button">Start Camera</button>
+          <button id="startCamera" class="btn" type="button">Start Scanning</button>
           <button id="stopCamera" class="btn secondary" type="button">Stop Camera</button>
         </div>
       </div>
       <div class="scan-box">
+        <div id="cameraReader" class="camera-reader"></div>
+        <div id="scanResult" class="result">Tap Start Scanning, allow camera access, then point at a QR code.</div>
         <div class="field">
-          <label>Scan value</label>
-          <input id="scanInput" autocomplete="off" placeholder="Focus here, scan, then press Enter">
+          <label>Manual backup</label>
+          <input id="scanInput" autocomplete="off" placeholder="Optional: type or paste a QR value">
         </div>
         <button id="lookupScan" class="btn secondary" type="button">Lookup</button>
-        <div id="cameraReader"></div>
-        <div id="scanResult" class="result">Try spreadsheet values like PROD-001, LOT-000001, LOC-B-02-01, PKG-000001.</div>
       </div>
     </section>
   `;
