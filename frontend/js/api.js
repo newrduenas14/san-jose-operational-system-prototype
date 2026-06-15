@@ -10,16 +10,36 @@ function useAppsScript() {
 }
 
 async function callAppsScript(action, payload = {}) {
-  const response = await fetch(GOOGLE_SCRIPT_WEB_APP_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain;charset=utf-8"
-    },
-    body: JSON.stringify({ action, payload })
+  return new Promise((resolve, reject) => {
+    const callback = `sjopsCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script = document.createElement("script");
+    const url = new URL(GOOGLE_SCRIPT_WEB_APP_URL);
+    url.searchParams.set("action", action);
+    url.searchParams.set("payload", JSON.stringify(payload));
+    url.searchParams.set("callback", callback);
+
+    const cleanup = () => {
+      delete window[callback];
+      script.remove();
+    };
+
+    window[callback] = (data) => {
+      cleanup();
+      if (!data.ok) {
+        reject(new Error(data.error || "Apps Script request failed."));
+        return;
+      }
+      resolve(data.result);
+    };
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("Could not reach Apps Script. Check deployment access and version."));
+    };
+
+    script.src = url.toString();
+    document.body.appendChild(script);
   });
-  const data = await response.json();
-  if (!data.ok) throw new Error(data.error || "Apps Script request failed.");
-  return data.result;
 }
 
 async function loadSeed() {
@@ -129,7 +149,7 @@ export async function createSupplier(user, input) {
 }
 
 export async function listLocations() {
-  if (useAppsScript()) return callApppsScript("listLocations");
+  if (useAppsScript()) return callAppsScript("listLocations");
   return (await db()).locations;
 }
 
@@ -157,7 +177,7 @@ export async function getPurchaseOrderDetail(poId) {
 }
 
 export async function createPurchaseOrder(user, input) {
-  if (useAppsScript()) return callApppsScript("createPurchaseOrder", { user, input });
+  if (useAppsScript()) return callAppsScript("createPurchaseOrder", { user, input });
   requirePermission(user, "purchaseOrders:create");
   const data = await db();
   const qty = numberValue(input.qty_ordered, 1);
@@ -306,7 +326,7 @@ function recommendLocation(data, product) {
 }
 
 export async function inventorySnapshot() {
-  if (useAppsScript()) return callApppsScript("inventorySnapshot");
+  if (useAppsScript()) return callAppsScript("inventorySnapshot");
   const data = await db();
   const byKey = new Map();
   for (const movement of data.inventoryMovements) {
