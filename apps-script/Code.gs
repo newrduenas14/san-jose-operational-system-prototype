@@ -1,15 +1,95 @@
 const SPREADSHEET_ID = "PASTE_YOUR_SPREADSHEET_ID_HERE";
 
-const PERMISSIONS = {
-  ADMIN: ["products:create", "suppliers:create", "purchaseOrders:create", "receiving:create", "scanner:lookup", "inventory:view"],
-  MANAGER: ["products:create", "suppliers:create", "purchaseOrders:create", "receiving:create", "scanner:lookup", "inventory:view"],
-  OPERATOR: ["receiving:create", "scanner:lookup", "inventory:view"]
+const ROLES = {
+  ADMIN: "ADMIN",
+  MANAGER: "MANAGER",
+  OPERATOR: "OPERATOR"
 };
 
-function doGet() {
+const PERMISSIONS = {
+  ADMIN: [
+    "products:create",
+    "suppliers:create",
+    "purchaseOrders:create",
+    "purchaseOrders:actions",
+    "receiving:create",
+    "inventory:view",
+    "scanner:lookup"
+  ],
+  MANAGER: [
+    "products:create",
+    "suppliers:create",
+    "purchaseOrders:create",
+    "purchaseOrders:actions",
+    "receiving:create",
+    "inventory:view",
+    "scanner:lookup"
+  ],
+  OPERATOR: [
+    "receiving:create",
+    "inventory:view",
+    "scanner:lookup"
+  ]
+};
+
+function doGet(e) {
+  if (e && e.parameter && e.parameter.action) {
+    return handleApiRequest_(e.parameter.action, e.parameter.payload, e.parameter.callback);
+  }
   return HtmlService.createHtmlOutputFromFile("index")
     .setTitle("San Jose Operations")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function doPost(e) {
+  const request = JSON.parse(e.postData.contents || "{}");
+  return handleApiRequest_(request.action, JSON.stringify(request.payload || {}), null);
+}
+
+function handleApiRequest_(action, payloadText, callback) {
+  try {
+    const payload = payloadText ? JSON.parse(payloadText) : {};
+    const routes = {
+      getDashboard,
+      listProducts,
+      createProduct,
+      listSuppliers,
+      createSupplier,
+      listLocations,
+      listPurchaseOrders,
+      getPurchaseOrderDetail,
+      createPurchaseOrder,
+      purchaseOrderAction,
+      receiveProduct,
+      inventorySnapshot,
+      lookupScan,
+      matchAmazonPackageScan
+    };
+    if (!routes[action]) throw new Error("Unknown action: " + action);
+    return json_({ ok: true, result: routes[action](payload) }, callback);
+  } catch (error) {
+    return json_({ ok: false, error: error.message || String(error) }, callback);
+  }
+}
+
+function json_(value, callback) {
+  const body = callback
+    ? `${callback}(${JSON.stringify(value)});`
+    : JSON.stringify(value);
+  return ContentService
+    .createTextOutput(body)
+    .setMimeType(callback ? ContentService.MimeType.JAVASCRIPT : ContentService.MimeType.JSON);
+}
+
+function getDashboard() {
+  return {
+    productCount: readTable_("PRODUCTS").length,
+    supplierCount: readTable_("SUPPLIERS").length,
+    openPoCount: readTable_("PURCHASE_ORDERS").filter((po) => po.po_status !== "COMPLETE").length,
+    lotCount: readTable_("LOTS").length,
+    movementCount: readTable_("INVENTORY_MOVEMENTS").length,
+    pendingAmazonPackages: readTable_("AMAZON_PACKAGES").filter((pkg) => !pkg.matched_amazon_order_id).length
+  };
 }
 
 function listProducts() {
@@ -17,10 +97,19 @@ function listProducts() {
 }
 
 function createProduct(payload) {
-  requirePermission_(payload.user, "products:create");
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "products:create");
+
   const input = payload.input || {};
   if (!input.product_name) throw new Error("Product name is required.");
+
+  const products = readTable_("PRODUCTS");
   const productId = input.product_id || nextId_("PRODUCTS", "product_id", "PROD");
+  if (products.some((row) => row.product_id === productId)) {
+    throw new Error("Product ID already exists.");
+  }
+
   const record = {
     product_id: productId,
     product_name: input.product_name,
@@ -39,6 +128,7 @@ function createProduct(payload) {
     updated_at: new Date(),
     notes: input.notes || ""
   };
+
   appendRecord_("PRODUCTS", record);
   return record;
 }
@@ -47,11 +137,24 @@ function listSuppliers() {
   return readTable_("SUPPLIERS");
 }
 
+function listLocations() {
+  return readTable_("LOCATIONS");
+}
+
 function createSupplier(payload) {
-  requirePermission_(payload.user, "suppliers:create");
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "suppliers:create");
+
   const input = payload.input || {};
   if (!input.supplier_name) throw new Error("Supplier name is required.");
+
+  const suppliers = readTable_("SUPPLIERS");
   const supplierId = input.supplier_id || nextId_("SUPPLIERS", "supplier_id", "SUP");
+  if (suppliers.some((row) => row.supplier_id === supplierId)) {
+    throw new Error("Supplier ID already exists.");
+  }
+
   const record = {
     supplier_id: supplierId,
     supplier_name: input.supplier_name,
@@ -67,6 +170,7 @@ function createSupplier(payload) {
     updated_at: new Date(),
     notes: input.notes || ""
   };
+
   appendRecord_("SUPPLIERS", record);
   return record;
 }
@@ -75,48 +179,70 @@ function listPurchaseOrders() {
   const suppliers = readTable_("SUPPLIERS");
   return readTable_("PURCHASE_ORDERS").map((po) => ({
     ...po,
-    supplier: suppliers.find((s) => s.supplier_id === po.supplier_id) || null
+    supplier: suppliers.find((supplier) => supplier.supplier_id === po.supplier_id) || null
   }));
 }
 
 function getPurchaseOrderDetail(payload) {
+  payload = payload || {};
   const poId = payload.poId || payload.po_id;
   const products = readTable_("PRODUCTS");
   const po = readTable_("PURCHASE_ORDERS").find((row) => row.po_id === poId);
   if (!po) return null;
+
   const lines = readTable_("PURCHASE_ORDER_LINES")
     .filter((line) => line.po_id === poId)
-    .map((line) => ({ ...line, product: products.find((p) => p.product_id === line.product_id) || null }));
+    .map((line) => ({
+      ...line,
+      product: products.find((product) => product.product_id === line.product_id) || null
+    }));
+
   return { po, lines };
 }
 
 function createPurchaseOrder(payload) {
-  requirePermission_(payload.user, "purchaseOrders:create");
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "purchaseOrders:create");
+
   const input = payload.input || {};
+  if (!input.supplier_id) throw new Error("Supplier is required.");
+  if (!input.product_id) throw new Error("Product is required.");
+
   const qty = Number(input.qty_ordered || 1);
   const unitCost = Number(input.unit_cost || 0);
   const poId = nextId_("PURCHASE_ORDERS", "po_id", "PO");
-  const lineId = nextId_("PURCHASE_ORDER_LINES", "po_line_id", "POL");
+  const poLineId = nextId_("PURCHASE_ORDER_LINES", "po_line_id", "POL");
+
   const po = {
     po_id: poId,
     po_status: "DRAFT",
     supplier_id: input.supplier_id,
-    created_by: (payload.user && payload.user.user_id) || "UNKNOWN",
+    created_by: user.user_id || user.role || "UNKNOWN",
     order_date: new Date(),
     expected_delivery_date: input.expected_delivery_date || "",
+    actual_first_received_date: "",
+    actual_completed_date: "",
     payment_terms: "Net 30",
     currency: "USD",
     subtotal_amount: qty * unitCost,
     tax_amount: 0,
     shipping_amount: 0,
     total_amount: qty * unitCost,
+    recommendation_id: "",
+    po_doc_url: "",
+    po_pdf_url: "",
     email_status: "NOT_SENT",
+    email_sent_at: "",
     printed_status: "NOT_PRINTED",
+    printed_at: "",
     supplier_confirmation_status: "PENDING",
+    supplier_confirmed_delivery_date: "",
     notes: input.notes || ""
   };
+
   const line = {
-    po_line_id: lineId,
+    po_line_id: poLineId,
     po_id: poId,
     supplier_id: input.supplier_id,
     product_id: input.product_id,
@@ -128,31 +254,68 @@ function createPurchaseOrder(payload) {
     unit_cost: unitCost,
     currency: "USD",
     line_total: qty * unitCost,
+    supplier_expected_lot_number: "",
     notes: input.notes || ""
   };
+
   appendRecord_("PURCHASE_ORDERS", po);
   appendRecord_("PURCHASE_ORDER_LINES", line);
   return po;
 }
 
+function purchaseOrderAction(payload) {
+  const user = payload.user || {};
+  requirePermission_(user, "purchaseOrders:actions");
+  const poId = payload.poId;
+  const action = payload.action;
+  if (action !== "markSent") return { po_id: poId, action };
+
+  const meta = tableMeta_("PURCHASE_ORDERS");
+  const idIndex = meta.headers.indexOf("po_id");
+  const statusIndex = meta.headers.indexOf("po_status");
+  const emailStatusIndex = meta.headers.indexOf("email_status");
+  for (let row = meta.headerRow + 1; row <= meta.sheet.getLastRow(); row++) {
+    if (meta.sheet.getRange(row, idIndex + 1).getValue() === poId) {
+      meta.sheet.getRange(row, statusIndex + 1).setValue("SENT");
+      if (emailStatusIndex >= 0) meta.sheet.getRange(row, emailStatusIndex + 1).setValue("SENT");
+      return { po_id: poId, po_status: "SENT", email_status: "SENT" };
+    }
+  }
+  throw new Error("PO not found.");
+}
+
 function receiveProduct(payload) {
-  requirePermission_(payload.user, "receiving:create");
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "receiving:create");
+
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
     const input = payload.input || {};
-    const line = readTable_("PURCHASE_ORDER_LINES").find((row) => row.po_line_id === input.po_line_id);
+    if (!input.po_id) throw new Error("Purchase order is required.");
+    if (!input.po_line_id) throw new Error("Purchase order line is required.");
+
+    const lines = readTable_("PURCHASE_ORDER_LINES");
+    const line = lines.find((row) => row.po_line_id === input.po_line_id);
     if (!line) throw new Error("Purchase order line not found.");
+
     const qtyReceived = Number(input.qty_received || 0);
     const qtyDamaged = Number(input.qty_damaged || 0);
     if (qtyReceived <= 0) throw new Error("Quantity received must be greater than zero.");
+
     const product = readTable_("PRODUCTS").find((row) => row.product_id === line.product_id);
-    const location = recommendLocation_(product);
-    const confirmedLocationId = input.confirmed_location_id || location.location_id;
+    const recommendedLocation = recommendLocation_(product);
+    const confirmedLocationId = input.confirmed_location_id || recommendedLocation.location_id;
+    if (!readTable_("LOCATIONS").some((row) => row.location_id === confirmedLocationId || row.qr_value === confirmedLocationId)) {
+      throw new Error("Confirmed location was not found.");
+    }
+
     const internalLotId = input.internal_lot_id || nextId_("LOTS", "internal_lot_id", "LOT");
     const receivingId = nextId_("RECEIVING", "receiving_id", "RCV");
     const movementId = nextId_("INVENTORY_MOVEMENTS", "movement_id", "MOV");
     const acceptedQty = qtyReceived - qtyDamaged;
+
     const receiving = {
       receiving_id: receivingId,
       po_id: input.po_id,
@@ -163,7 +326,7 @@ function receiveProduct(payload) {
       internal_lot_id: internalLotId,
       supplier_lot_number: input.supplier_lot_number || "",
       received_date: new Date(),
-      received_by: (payload.user && payload.user.user_id) || "UNKNOWN",
+      received_by: user.user_id || user.role || "UNKNOWN",
       qty_received: qtyReceived,
       qty_damaged: qtyDamaged,
       qty_accepted: acceptedQty,
@@ -171,12 +334,13 @@ function receiveProduct(payload) {
       quality_score: Number(input.quality_score || 5),
       product_accuracy_score: 5,
       over_under_status: "MATCH",
-      recommended_location_id: location.location_id,
+      recommended_location_id: recommendedLocation.location_id,
       confirmed_location_id: confirmedLocationId,
       requires_supervisor_approval: false,
       approval_status: "APPROVED",
       notes: input.notes || ""
     };
+
     const lot = {
       internal_lot_id: internalLotId,
       product_id: line.product_id,
@@ -192,33 +356,44 @@ function receiveProduct(payload) {
       currency: line.currency || "USD",
       current_location_id: confirmedLocationId,
       status: "ACTIVE",
+      expiration_date: "",
       qr_value: internalLotId,
+      label_printed_status: "NOT_PRINTED",
+      label_printed_at: "",
       created_at: new Date(),
       updated_at: new Date(),
-      notes: "Created by Apps Script receiving flow."
+      notes: "Created from Apps Script receiving flow."
     };
+
     const movement = {
       movement_id: movementId,
       movement_type: "RECEIVE",
       timestamp: new Date(),
-      user_id: (payload.user && payload.user.user_id) || "UNKNOWN",
+      user_id: user.user_id || user.role || "UNKNOWN",
       product_id: line.product_id,
       internal_lot_id: internalLotId,
+      package_id: "",
       qty_change: acceptedQty,
       unit_type: line.unit_type,
       from_location_id: "SUPPLIER",
       to_location_id: confirmedLocationId,
       related_po_id: input.po_id,
       related_receiving_id: receivingId,
+      related_sales_order_id: "",
+      related_pick_task_id: "",
+      related_amazon_order_id: "",
       scan_code: input.scan_code || internalLotId,
       device_id: "WEB_APP",
       approval_status: "APPROVED",
       notes: input.notes || ""
     };
+
     appendRecord_("RECEIVING", receiving);
     appendRecord_("LOTS", lot);
     appendRecord_("INVENTORY_MOVEMENTS", movement);
     updatePoLineReceived_(input.po_line_id, qtyReceived);
+    updatePoStatus_(input.po_id);
+
     return { receiving, lot, movement };
   } finally {
     lock.releaseLock();
@@ -226,40 +401,141 @@ function receiveProduct(payload) {
 }
 
 function lookupScan(payload) {
-  requirePermission_(payload.user || { role: "OPERATOR" }, "scanner:lookup");
+  payload = payload || {};
   const value = String(payload.scanValue || "").trim();
   if (!value) return null;
-  const product = readTable_("PRODUCTS").find((row) => [row.product_id, row.barcode_or_qr_value, row.amazon_sku, row.wholesale_sku].includes(value));
+
+  const product = readTable_("PRODUCTS").find((row) =>
+    [row.product_id, row.barcode_or_qr_value, row.amazon_sku, row.wholesale_sku].includes(value)
+  );
   if (product) return { type: "PRODUCT", record: product };
-  const location = readTable_("LOCATIONS").find((row) => [row.location_id, row.qr_value].includes(value));
+
+  const location = readTable_("LOCATIONS").find((row) =>
+    [row.location_id, row.qr_value].includes(value)
+  );
   if (location) return { type: "LOCATION", record: location };
-  const lot = readTable_("LOTS").find((row) => [row.internal_lot_id, row.qr_value, row.supplier_lot_number].includes(value));
+
+  const lot = readTable_("LOTS").find((row) =>
+    [row.internal_lot_id, row.qr_value, row.supplier_lot_number].includes(value)
+  );
   if (lot) return { type: "LOT", record: lot };
+
+  const pkg = readTable_("AMAZON_PACKAGES").find((row) =>
+    [row.package_id, row.package_qr_value].includes(value)
+  );
+  if (pkg) return { type: "AMAZON_PACKAGE", record: pkg };
+
   return null;
 }
 
-function inventorySnapshot(payload) {
-  requirePermission_(payload.user, "inventory:view");
+function matchAmazonPackageScan(payload) {
+  const scanValue = String(payload.scanValue || "").trim();
+  const pkg = readTable_("AMAZON_PACKAGES").find((row) =>
+    [row.package_id, row.package_qr_value].includes(scanValue)
+  );
+  if (!pkg) return { match_status: "NOT_FOUND", message: "Package scan was not found." };
+
+  const record = {
+    scan_match_id: nextId_("AMAZON_SCAN_MATCHES", "scan_match_id", "AMZSCAN"),
+    scanned_at: new Date(),
+    scanned_by: "GITHUB_PAGES",
+    device_id: "WEB_APP",
+    package_id: pkg.package_id,
+    amazon_order_id: pkg.matched_amazon_order_id || "",
+    amazon_order_item_id: pkg.matched_amazon_order_item_id || "",
+    amazon_sku: pkg.amazon_sku,
+    product_id: pkg.product_id,
+    match_status: "PACKAGE_FOUND",
+    match_confidence: 0.75,
+    exception_code: "",
+    related_pick_task_id: "",
+    related_movement_id: "",
+    notes: "Matched by GitHub Pages prototype."
+  };
+  appendRecord_("AMAZON_SCAN_MATCHES", record);
+  return record;
+}
+
+function inventorySnapshot() {
+  const movements = readTable_("INVENTORY_MOVEMENTS");
+  const products = readTable_("PRODUCTS");
+  const lots = readTable_("LOTS");
   const grouped = {};
-  readTable_("INVENTORY_MOVEMENTS").forEach((movement) => {
+
+  movements.forEach((movement) => {
     const locationId = movement.to_location_id || movement.from_location_id || "";
     const key = [movement.product_id, movement.internal_lot_id, locationId].join("|");
-    if (!grouped[key]) grouped[key] = { product_id: movement.product_id, internal_lot_id: movement.internal_lot_id, location_id: locationId, qty: 0, unit_type: movement.unit_type };
+    if (!grouped[key]) {
+      grouped[key] = {
+        product_id: movement.product_id,
+        internal_lot_id: movement.internal_lot_id,
+        location_id: locationId,
+        qty: 0,
+        unit_type: movement.unit_type
+      };
+    }
     grouped[key].qty += Number(movement.qty_change || 0);
   });
-  return Object.keys(grouped).map((key) => grouped[key]);
+
+  return Object.keys(grouped).map((key) => ({
+    ...grouped[key],
+    product: products.find((row) => row.product_id === grouped[key].product_id) || null,
+    lot: lots.find((row) => row.internal_lot_id === grouped[key].internal_lot_id) || null
+  }));
+}
+
+function testCreateProduct() {
+  return createProduct({
+    user: { user_id: "ADMIN", role: "ADMIN" },
+    input: {
+      product_name: "TEST PRODUCT FROM APPS SCRIPT",
+      product_category: "Packaging",
+      default_unit: "BOX",
+      barcode_or_qr_value: "TEST-PRODUCT-QR",
+      notes: "Created from testCreateProduct."
+    }
+  });
+}
+
+function testCreateSupplier() {
+  return createSupplier({
+    user: { user_id: "ADMIN", role: "ADMIN" },
+    input: {
+      supplier_name: "Test Supplier From Apps Script",
+      contact_name: "Test Contact",
+      email: "test@example.com",
+      phone: "555-000-0000",
+      notes: "Created from testCreateSupplier."
+    }
+  });
+}
+
+function testLookupScan() {
+  return lookupScan({
+    user: { user_id: "ADMIN", role: "ADMIN" },
+    scanValue: "PROD-001"
+  });
 }
 
 function spreadsheet_() {
-  if (SPREADSHEET_ID === "PASTE_YOUR_SPREADSHEET_ID_HERE") throw new Error("Set SPREADSHEET_ID in Code.gs first.");
+  if (SPREADSHEET_ID === "PASTE_YOUR_SPREADSHEET_ID_HERE") {
+    throw new Error("Set SPREADSHEET_ID in Code.gs first.");
+  }
   return SpreadsheetApp.openById(SPREADSHEET_ID);
 }
 
-function tableMeta_(sheetName) {
+function sheet_(sheetName) {
   const sheet = spreadsheet_().getSheetByName(sheetName);
   if (!sheet) throw new Error("Missing sheet: " + sheetName);
+  return sheet;
+}
+
+function tableMeta_(sheetName) {
+  const sheet = sheet_(sheetName);
   const values = sheet.getDataRange().getValues();
-  const headerIndex = values.findIndex((row) => row.some((cell) => String(cell || "").trim().endsWith("_id")));
+  const headerIndex = values.findIndex((row) =>
+    row.some((cell) => String(cell || "").trim().endsWith("_id"))
+  );
   if (headerIndex < 0) throw new Error("Could not find header row for " + sheetName);
   const headers = values[headerIndex].map((cell) => String(cell || "").trim()).filter(Boolean);
   return { sheet, values, headerRow: headerIndex + 1, headers };
@@ -267,11 +543,15 @@ function tableMeta_(sheetName) {
 
 function readTable_(sheetName) {
   const meta = tableMeta_(sheetName);
-  return meta.values.slice(meta.headerRow).filter((row) => row.some((cell) => cell !== "")).map((row) => {
-    const record = {};
-    meta.headers.forEach((header, index) => record[header] = row[index]);
-    return record;
-  });
+  return meta.values.slice(meta.headerRow)
+    .filter((row) => row.some((cell) => cell !== ""))
+    .map((row) => {
+      const record = {};
+      meta.headers.forEach((header, index) => {
+        record[header] = row[index];
+      });
+      return record;
+    });
 }
 
 function appendRecord_(sheetName, record) {
@@ -280,7 +560,8 @@ function appendRecord_(sheetName, record) {
 }
 
 function nextId_(sheetName, idColumn, prefix) {
-  const maxNumber = readTable_(sheetName).reduce((max, row) => {
+  const rows = readTable_(sheetName);
+  const maxNumber = rows.reduce((max, row) => {
     const match = String(row[idColumn] || "").match(/(\d+)$/);
     return match ? Math.max(max, Number(match[1])) : max;
   }, 0);
@@ -288,13 +569,18 @@ function nextId_(sheetName, idColumn, prefix) {
 }
 
 function requirePermission_(user, permission) {
-  const role = (user && user.role) || "OPERATOR";
-  if (!PERMISSIONS[role] || !PERMISSIONS[role].includes(permission)) throw new Error("Permission denied: " + permission);
+  const role = user.role || "OPERATOR";
+  if (!PERMISSIONS[role] || !PERMISSIONS[role].includes(permission)) {
+    throw new Error("Permission denied: " + permission);
+  }
 }
 
 function recommendLocation_(product) {
   const locations = readTable_("LOCATIONS");
-  return locations.find((location) => location.current_status === "AVAILABLE" && (!product || !location.allowed_categories || location.allowed_categories === product.product_category)) || locations[0];
+  return locations.find((location) =>
+    location.current_status === "AVAILABLE"
+    && (!product || !location.allowed_categories || location.allowed_categories === product.product_category)
+  ) || locations[0];
 }
 
 function updatePoLineReceived_(poLineId, qtyReceived) {
@@ -304,15 +590,32 @@ function updatePoLineReceived_(poLineId, qtyReceived) {
   const remainingIndex = meta.headers.indexOf("qty_remaining");
   const orderedIndex = meta.headers.indexOf("qty_ordered");
   const statusIndex = meta.headers.indexOf("line_status");
-  for (let row = meta.headerRow + 1; row <= meta.sheet.getLastRow(); row++) {
-    if (meta.sheet.getRange(row, idIndex + 1).getValue() === poLineId) {
-      const ordered = Number(meta.sheet.getRange(row, orderedIndex + 1).getValue() || 0);
-      const currentReceived = Number(meta.sheet.getRange(row, receivedIndex + 1).getValue() || 0);
+
+  for (let r = meta.headerRow + 1; r <= meta.sheet.getLastRow(); r++) {
+    if (meta.sheet.getRange(r, idIndex + 1).getValue() === poLineId) {
+      const ordered = Number(meta.sheet.getRange(r, orderedIndex + 1).getValue() || 0);
+      const currentReceived = Number(meta.sheet.getRange(r, receivedIndex + 1).getValue() || 0);
       const newReceived = currentReceived + Number(qtyReceived || 0);
       const remaining = Math.max(0, ordered - newReceived);
-      meta.sheet.getRange(row, receivedIndex + 1).setValue(newReceived);
-      meta.sheet.getRange(row, remainingIndex + 1).setValue(remaining);
-      meta.sheet.getRange(row, statusIndex + 1).setValue(remaining === 0 ? "RECEIVED" : "PARTIALLY_RECEIVED");
+      meta.sheet.getRange(r, receivedIndex + 1).setValue(newReceived);
+      meta.sheet.getRange(r, remainingIndex + 1).setValue(remaining);
+      meta.sheet.getRange(r, statusIndex + 1).setValue(remaining === 0 ? "RECEIVED" : "PARTIALLY_RECEIVED");
+      return;
+    }
+  }
+}
+
+function updatePoStatus_(poId) {
+  const lines = readTable_("PURCHASE_ORDER_LINES").filter((line) => line.po_id === poId);
+  const allReceived = lines.length > 0 && lines.every((line) => Number(line.qty_remaining || 0) === 0);
+  const status = allReceived ? "COMPLETE" : "PARTIALLY_RECEIVED";
+
+  const meta = tableMeta_("PURCHASE_ORDERS");
+  const idIndex = meta.headers.indexOf("po_id");
+  const statusIndex = meta.headers.indexOf("po_status");
+  for (let r = meta.headerRow + 1; r <= meta.sheet.getLastRow(); r++) {
+    if (meta.sheet.getRange(r, idIndex + 1).getValue() === poId) {
+      meta.sheet.getRange(r, statusIndex + 1).setValue(status);
       return;
     }
   }
