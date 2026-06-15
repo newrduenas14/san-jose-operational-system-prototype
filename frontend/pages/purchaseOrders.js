@@ -1,4 +1,4 @@
-import { createPurchaseOrder, listProducts, listPurchaseOrders, listSuppliers, purchaseOrderAction } from "../js/api.js";
+import { createPurchaseOrder, listProducts, listPurchaseOrders, listSuppliers, purchaseOrderAction } from "../js/api.js?v=phonefix1";
 import { can } from "../js/permissions.js";
 import { formToObject, notice, status, table } from "../js/utils.js";
 
