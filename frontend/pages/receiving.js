@@ -1,4 +1,4 @@
-import { getPurchaseOrderDetail, listPurchaseOrders, receiveProduct } from "../js/api.js";
+import { getPurchaseOrderDetail, listPurchaseOrders, receiveProduct } from "../js/api.js?v=phonefix1";
 import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js";
 import { formToObject, notice, table } from "../js/utils.js";
 
