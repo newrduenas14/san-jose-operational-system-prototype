@@ -1,5 +1,5 @@
 import { lookupScan } from "../js/api.js?v=phonefix2";
-import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=scanfix1";
+import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=scanfix2";
 import { escapeHtml, notice } from "../js/utils.js";
 
 export async function render(ctx) {
