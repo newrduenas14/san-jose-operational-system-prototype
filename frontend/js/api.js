@@ -1,8 +1,26 @@
 import { requirePermission } from "./permissions.js";
 import { numberValue, today, uid } from "./utils.js";
+import { GOOGLE_SCRIPT_WEB_APP_URL } from "./config.js";
 
 const DB_KEY = "sjops.database.v1";
 let dbCache;
+
+function useAppsScript() {
+  return Boolean(GOOGLE_SCRIPT_WEB_APP_URL && GOOGLE_SCRIPT_WEB_APP_URL.includes("/exec"));
+}
+
+async function callAppsScript(action, payload = {}) {
+  const response = await fetch(GOOGLE_SCRIPT_WEB_APP_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain;charset=utf-8"
+    },
+    body: JSON.stringify({ action, payload })
+  });
+  const data = await response.json();
+  if (!data.ok) throw new Error(data.error || "Apps Script request failed.");
+  return data.result;
+}
 
 async function loadSeed() {
   const res = await fetch("../data/spreadsheetSeed.json");
@@ -23,12 +41,16 @@ function save() {
 }
 
 export async function resetToSpreadsheetSeed() {
+  if (useAppsScript()) {
+    throw new Error("Reset is only available in local prototype mode.");
+  }
   dbCache = await loadSeed();
   save();
   return dbCache;
 }
 
 export async function getDashboard() {
+  if (useAppsScript()) return callAppsScript("getDashboard");
   const data = await db();
   return {
     productCount: data.products.length,
@@ -41,10 +63,12 @@ export async function getDashboard() {
 }
 
 export async function listProducts() {
+  if (useAppsScript()) return callAppsScript("listProducts");
   return (await db()).products;
 }
 
 export async function createProduct(user, input) {
+  if (useAppsScript()) return callAppsScript("createProduct", { user, input });
   requirePermission(user, "products:create");
   const data = await db();
   const product = {
@@ -74,10 +98,12 @@ export async function createProduct(user, input) {
 }
 
 export async function listSuppliers() {
+  if (useAppsScript()) return callAppsScript("listSuppliers");
   return (await db()).suppliers;
 }
 
 export async function createSupplier(user, input) {
+  if (useAppsScript()) return callAppsScript("createSupplier", { user, input });
   requirePermission(user, "suppliers:create");
   const data = await db();
   const supplier = {
@@ -103,10 +129,12 @@ export async function createSupplier(user, input) {
 }
 
 export async function listLocations() {
+  if (useAppsScript()) return callApppsScript("listLocations");
   return (await db()).locations;
 }
 
 export async function listPurchaseOrders() {
+  if (useAppsScript()) return callAppsScript("listPurchaseOrders");
   const data = await db();
   return data.purchaseOrders.map((po) => ({
     ...po,
@@ -115,6 +143,7 @@ export async function listPurchaseOrders() {
 }
 
 export async function getPurchaseOrderDetail(poId) {
+  if (useAppsScript()) return callAppsScript("getPurchaseOrderDetail", { poId });
   const data = await db();
   const po = data.purchaseOrders.find((item) => item.po_id === poId);
   if (!po) return null;
@@ -128,6 +157,7 @@ export async function getPurchaseOrderDetail(poId) {
 }
 
 export async function createPurchaseOrder(user, input) {
+  if (useAppsScript()) return callApppsScript("createPurchaseOrder", { user, input });
   requirePermission(user, "purchaseOrders:create");
   const data = await db();
   const qty = numberValue(input.qty_ordered, 1);
@@ -168,6 +198,7 @@ export async function createPurchaseOrder(user, input) {
 }
 
 export async function purchaseOrderAction(user, poId, action) {
+  if (useAppsScript()) return callAppsScript("purchaseOrderAction", { user, poId, action });
   requirePermission(user, "purchaseOrders:actions");
   const data = await db();
   const po = data.purchaseOrders.find((item) => item.po_id === poId);
@@ -181,6 +212,7 @@ export async function purchaseOrderAction(user, poId, action) {
 }
 
 export async function receiveProduct(user, input) {
+  if (useAppsScript()) return callAppsScript("receiveProduct", { user, input });
   requirePermission(user, "receiving:create");
   const data = await db();
   const detail = await getPurchaseOrderDetail(input.po_id);
@@ -274,6 +306,7 @@ function recommendLocation(data, product) {
 }
 
 export async function inventorySnapshot() {
+  if (useAppsScript()) return callApppsScript("inventorySnapshot");
   const data = await db();
   const byKey = new Map();
   for (const movement of data.inventoryMovements) {
@@ -297,6 +330,7 @@ export async function inventorySnapshot() {
 }
 
 export async function lookupScan(scanValue) {
+  if (useAppsScript()) return callAppsScript("lookupScan", { scanValue });
   const data = await db();
   const value = String(scanValue || "").trim();
   if (!value) return null;
@@ -314,6 +348,7 @@ export async function lookupScan(scanValue) {
 }
 
 export async function matchAmazonPackageScan(scanValue) {
+  if (useAppsScript()) return callAppsScript("matchAmazonPackageScan", { scanValue });
   const data = await db();
   const pkg = data.amazonPackages.find((item) => [item.package_id, item.package_qr_value].includes(scanValue));
   if (!pkg) return { match_status: "NOT_FOUND", message: "Package scan was not found." };
