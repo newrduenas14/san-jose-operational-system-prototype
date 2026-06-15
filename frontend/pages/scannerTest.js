@@ -1,4 +1,4 @@
-import { lookupScan } from "../js/api.js";
+import { lookupScan } from "../js/api.js?v=phonefix1";
 import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js";
 import { escapeHtml, notice } from "../js/utils.js";
 
