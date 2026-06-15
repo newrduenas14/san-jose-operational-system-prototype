@@ -1,9 +1,11 @@
-let cameraScanner;
-let libraryLoadPromise;
+let cameraStream;
+let scanLoopId;
+let barcodeDetector;
+let jsQrLoadPromise;
 
-const SCANNER_LIBRARY_URLS = [
-  "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js",
-  "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"
+const JS_QR_URLS = [
+  "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js",
+  "https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"
 ];
 
 export function handleKeyboardScan(inputElement, onScanCallback) {
@@ -29,48 +31,108 @@ export function handleKeyboardScan(inputElement, onScanCallback) {
 export async function startCameraScanner(targetInputId, onScanCallback) {
   const target = document.getElementById(targetInputId);
   if (!target) throw new Error("Target scan input was not found.");
-  await ensureScannerLibrary();
   await stopCameraScanner();
-  const readerId = "cameraReader";
-  cameraScanner = new window.Html5Qrcode(readerId);
-  await cameraScanner.start(
-    { facingMode: "environment" },
-    { fps: 10, qrbox: { width: 250, height: 250 } },
-    (decodedText) => {
-      target.value = decodedText;
-      onScanCallback(decodedText);
+
+  const reader = document.getElementById("cameraReader");
+  if (!reader) throw new Error("Camera reader area was not found.");
+  reader.innerHTML = `
+    <video id="scanVideo" class="scan-video" autoplay muted playsinline></video>
+    <canvas id="scanCanvas" hidden></canvas>
+    <div class="scan-hint">Point the camera at a QR code.</div>
+  `;
+
+  const video = document.getElementById("scanVideo");
+  const canvas = document.getElementById("scanCanvas");
+  cameraStream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: { ideal: "environment" },
+      width: { ideal: 1280 },
+      height: { ideal: 720 }
     }
-  );
+  });
+  video.srcObject = cameraStream;
+  await video.play();
+
+  let lastScanValue = "";
+  let lastScanAt = 0;
+  const emitScan = (value) => {
+    const normalized = String(value || "").trim();
+    const now = Date.now();
+    if (!normalized) return;
+    if (normalized === lastScanValue && now - lastScanAt < 2500) return;
+    lastScanValue = normalized;
+    lastScanAt = now;
+    target.value = normalized;
+    onScanCallback(normalized);
+  };
+
+  if ("BarcodeDetector" in window) {
+    barcodeDetector = barcodeDetector || new window.BarcodeDetector({ formats: ["qr_code"] });
+  } else {
+    await ensureJsQrLibrary();
+  }
+
+  const scanFrame = async () => {
+    if (!cameraStream) return;
+    try {
+      if (barcodeDetector) {
+        const codes = await barcodeDetector.detect(video);
+        if (codes.length) emitScan(codes[0].rawValue);
+      } else {
+        const code = scanWithJsQr(video, canvas);
+        if (code) emitScan(code);
+      }
+    } finally {
+      scanLoopId = window.setTimeout(scanFrame, 250);
+    }
+  };
+  scanFrame();
 }
 
 export async function stopCameraScanner() {
-  if (!cameraScanner) return;
-  try {
-    await cameraScanner.stop();
-    await cameraScanner.clear();
-  } finally {
-    cameraScanner = null;
+  if (scanLoopId) {
+    window.clearTimeout(scanLoopId);
+    scanLoopId = null;
   }
+  if (cameraStream) {
+    cameraStream.getTracks().forEach((track) => track.stop());
+    cameraStream = null;
+  }
+  const reader = document.getElementById("cameraReader");
+  if (reader) reader.innerHTML = "";
 }
 
-async function ensureScannerLibrary() {
-  if (window.Html5Qrcode) return;
-  if (!libraryLoadPromise) {
-    libraryLoadPromise = loadScannerLibrary();
+async function ensureJsQrLibrary() {
+  if (window.jsQR) return;
+  if (!jsQrLoadPromise) {
+    jsQrLoadPromise = loadJsQrLibrary();
   }
-  await libraryLoadPromise;
+  await jsQrLoadPromise;
 }
 
-async function loadScannerLibrary() {
-  for (const url of SCANNER_LIBRARY_URLS) {
+async function loadJsQrLibrary() {
+  for (const url of JS_QR_URLS) {
     try {
       await loadScript(url);
-      if (window.Html5Qrcode) return;
+      if (window.jsQR) return;
     } catch (_error) {
       // Try the next CDN.
     }
   }
-  throw new Error("Camera scanner library could not load. Check phone internet access and reload.");
+  throw new Error("QR scanner library could not load. Check phone internet access and reload.");
+}
+
+function scanWithJsQr(video, canvas) {
+  if (!window.jsQR || !video.videoWidth || !video.videoHeight) return null;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const code = window.jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: "dontInvert"
+  });
+  return code?.data || null;
 }
 
 function loadScript(src) {
