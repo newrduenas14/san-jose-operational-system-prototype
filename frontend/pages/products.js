@@ -1,4 +1,4 @@
-import { createProduct, listProducts } from "../js/api.js?v=phonefix1";
+import { createProduct, listProducts } from "../js/api.js?v=phonefix2";
 import { can } from "../js/permissions.js";
 import { escapeHtml, formToObject, notice, status, table } from "../js/utils.js";
 
