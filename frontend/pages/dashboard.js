@@ -1,4 +1,4 @@
-import { getDashboard, resetToSpreadsheetSeed } from "../js/api.js";
+import { getDashboard, resetToSpreadsheetSeed } from "../js/api.js?v=phonefix1";
 import { can } from "../js/permissions.js";
 import { notice } from "../js/utils.js";
 
