@@ -1,0 +1,182 @@
+{
+  "products": [
+    {
+      "product_id": "PROD-001",
+      "product_name": "MINI TORNILLO",
+      "product_category": "Packaging",
+      "default_unit": "BOX",
+      "case_weight_lbs": 33,
+      "amazon_sku": "AMZ-MINI-TORN",
+      "wholesale_sku": "WHO-MINI-TORN",
+      "barcode_or_qr_value": "PROD-001",
+      "min_stock_qty": 20,
+      "target_stock_qty": 100,
+      "velocity_class": "FAST",
+      "storage_zone_preference": "AMAZON_NEAR_PACKING",
+      "is_active": true,
+      "notes": "Example product from spreadsheet."
+    }
+  ],
+  "suppliers": [
+    {
+      "supplier_id": "SUP-001",
+      "supplier_name": "Example Supplier",
+      "contact_name": "Supplier Contact",
+      "email": "supplier@example.com",
+      "phone": "555-000-0000",
+      "address": "Supplier address",
+      "payment_terms": "Net 30",
+      "default_currency": "USD",
+      "lead_time_expected_days": 10,
+      "is_active": true,
+      "notes": "Example supplier from spreadsheet."
+    }
+  ],
+  "locations": [
+    {
+      "location_id": "LOC-B-02-01",
+      "zone": "B",
+      "aisle": "02",
+      "rack": "R1",
+      "level": "01",
+      "bin": "BIN1",
+      "location_type": "RACK",
+      "capacity_units": 100,
+      "current_status": "AVAILABLE",
+      "allowed_categories": "Packaging",
+      "qr_value": "LOC-B-02-01",
+      "notes": "Close to Amazon packing."
+    }
+  ],
+  "users": [
+    {
+      "user_id": "ADMIN",
+      "full_name": "Admin User",
+      "role": "ADMIN",
+      "email": "admin@example.com",
+      "is_active": true
+    },
+    {
+      "user_id": "MANAGER",
+      "full_name": "Manager User",
+      "role": "MANAGER",
+      "email": "manager@example.com",
+      "is_active": true
+    },
+    {
+      "user_id": "OPERATOR",
+      "full_name": "Warehouse Operator",
+      "role": "OPERATOR",
+      "email": "operator@example.com",
+      "device_assigned": "ZEBRA-001",
+      "is_active": true
+    }
+  ],
+  "devices": [
+    {
+      "device_id": "ZEBRA-001",
+      "device_type": "RUGGED_SCANNER",
+      "brand_model": "Zebra Android Scanner",
+      "assigned_to": "OPERATOR",
+      "station": "Receiving",
+      "scanner_mode": "KEYBOARD_INPUT",
+      "is_active": true
+    },
+    {
+      "device_id": "IPAD-001",
+      "device_type": "TABLET",
+      "brand_model": "iPad + Bluetooth Scanner",
+      "station": "Packing",
+      "scanner_mode": "BLUETOOTH_KEYBOARD",
+      "is_active": true
+    }
+  ],
+  "purchaseOrders": [
+    {
+      "po_id": "PO-000001",
+      "po_status": "DRAFT",
+      "supplier_id": "SUP-001",
+      "created_by": "ADMIN",
+      "order_date": "2026-06-15",
+      "expected_delivery_date": "",
+      "payment_terms": "Net 30",
+      "currency": "USD",
+      "subtotal_amount": 1250,
+      "total_amount": 1250,
+      "email_status": "NOT_SENT",
+      "printed_status": "NOT_PRINTED",
+      "supplier_confirmation_status": "PENDING",
+      "notes": "Example PO from spreadsheet."
+    }
+  ],
+  "purchaseOrderLines": [
+    {
+      "po_line_id": "POL-000001",
+      "po_id": "PO-000001",
+      "supplier_id": "SUP-001",
+      "product_id": "PROD-001",
+      "line_status": "ORDERED",
+      "qty_ordered": 100,
+      "qty_received_total": 0,
+      "qty_remaining": 100,
+      "unit_type": "BOX",
+      "unit_cost": 12.5,
+      "line_total": 1250
+    }
+  ],
+  "lots": [
+    {
+      "internal_lot_id": "LOT-000001",
+      "product_id": "PROD-001",
+      "supplier_id": "SUP-001",
+      "supplier_lot_number": "261803",
+      "po_id": "PO-000001",
+      "po_line_id": "POL-000001",
+      "received_date": "2026-06-15",
+      "original_qty": 100,
+      "current_qty_script": 100,
+      "unit_type": "BOX",
+      "unit_cost": 12.5,
+      "current_location_id": "LOC-B-02-01",
+      "status": "ACTIVE",
+      "qr_value": "LOT-000001",
+      "notes": "Internal unique lot ID even if supplier lot repeats."
+    }
+  ],
+  "inventoryMovements": [
+    {
+      "movement_id": "MOV-000001",
+      "movement_type": "RECEIVE",
+      "timestamp": "2026-06-15T16:48:07.183Z",
+      "user_id": "OPERATOR",
+      "product_id": "PROD-001",
+      "internal_lot_id": "LOT-000001",
+      "qty_change": 100,
+      "unit_type": "BOX",
+      "from_location_id": "SUPPLIER",
+      "to_location_id": "LOC-B-02-01",
+      "related_po_id": "PO-000001",
+      "scan_code": "LOT-000001",
+      "device_id": "ZEBRA-001",
+      "approval_status": "APPROVED"
+    }
+  ],
+  "receiving": [],
+  "salesOrders": [],
+  "salesOrderLines": [],
+  "pickTasks": [],
+  "amazonPackages": [
+    {
+      "package_id": "PKG-000001",
+      "package_qr_value": "PKG-000001",
+      "amazon_sku": "AMZ-MINI-TORN",
+      "product_id": "PROD-001",
+      "source_internal_lot_id": "LOT-000001",
+      "qty_product_used": 1,
+      "unit_type": "BOX",
+      "package_status": "READY",
+      "current_location_id": "AMZ-PACK-STATION"
+    }
+  ],
+  "amazonScanMatches": []
+}
