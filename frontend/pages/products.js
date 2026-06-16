@@ -1,4 +1,4 @@
-import { createProduct, listProducts } from "../js/api.js?v=opsupdate1";
+import { createProduct, listProducts } from "../js/api-smooth1.js";
 import { can } from "../js/permissions.js";
 import { escapeHtml, formToObject, notice, status, table } from "../js/utils.js";
 
