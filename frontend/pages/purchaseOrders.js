@@ -1,4 +1,4 @@
-import { createPurchaseOrder, generatePurchaseOrderTemplate, listProducts, listPurchaseOrders, listSuppliers, purchaseOrderAction } from "../js/api.js?v=opsupdate1";
+import { createPurchaseOrder, getPurchaseOrderDetail, listProducts, listPurchaseOrders, listSuppliers, purchaseOrderAction } from "../js/api.js?v=opsupdate1";
 import { can } from "../js/permissions.js";
 import { escapeHtml, formToObject, notice, status, table } from "../js/utils.js";
 
@@ -40,8 +40,8 @@ export async function render(ctx) {
         notice(`${poId} marked as sent.`);
         await render(ctx);
       } else if (poAction === "printTemplate") {
-        const template = await generatePurchaseOrderTemplate(poId);
-        openPrintablePurchaseOrder(template);
+        const template = await getPurchaseOrderDetail(poId);
+        openPrintablePurchaseOrder(addQrValues(template));
       } else {
         notice(`${button.textContent} is a placeholder for ${poId}.`);
       }
@@ -136,6 +136,20 @@ function printablePurchaseOrderHtml({ po, lines }) {
       </body>
     </html>
   `;
+}
+
+function addQrValues(template) {
+  return {
+    ...template,
+    lines: template.lines.map((line) => ({
+      ...line,
+      qr_value: purchaseOrderQrValue(line.product_id, line.qty_ordered, line.supplier_expected_lot_number)
+    }))
+  };
+}
+
+function purchaseOrderQrValue(productId, qty, supplierLotNumber = "") {
+  return [productId, `QTY:${Number(qty || 0)}`, `SUPLOT:${supplierLotNumber || "PENDING"}`].join("|");
 }
 
 function qrImageUrl(value) {
