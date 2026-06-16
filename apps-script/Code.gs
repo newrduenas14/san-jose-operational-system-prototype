@@ -63,6 +63,7 @@ function handleApiRequest_(action, payloadText, callback) {
       purchaseOrderAction,
       receiveProduct,
       inventorySnapshot,
+      getOperationalReports,
       lookupScan,
       matchAmazonPackageScan
     };
@@ -504,6 +505,29 @@ function inventorySnapshot() {
   }));
 }
 
+function getOperationalReports() {
+  const products = readTable_("PRODUCTS");
+  const suppliers = readTable_("SUPPLIERS");
+  const purchaseOrders = readTable_("PURCHASE_ORDERS");
+  const purchaseOrderLines = readTable_("PURCHASE_ORDER_LINES");
+  const receiving = readTable_("RECEIVING");
+  const lots = readTable_("LOTS");
+  const movements = readTable_("INVENTORY_MOVEMENTS");
+  const snapshots = buildInventorySnapshot_(products, lots, movements);
+  const leadTimeBySupplier = buildLeadTimeStatsBySupplier_(purchaseOrders);
+  const planningByProduct = products.map((product) =>
+    buildProductPlanning_(product, suppliers, purchaseOrders, purchaseOrderLines, movements, snapshots, leadTimeBySupplier)
+  );
+
+  return {
+    calculated_at: new Date(),
+    supplierAnalytics: buildSupplierAnalytics_(suppliers, products, purchaseOrders, purchaseOrderLines, receiving, leadTimeBySupplier),
+    inventoryPlanning: planningByProduct,
+    inventorySnapshot: snapshots,
+    recommendations: buildRecommendations_(planningByProduct)
+  };
+}
+
 function testCreateProduct() {
   return createProduct({
     user: { user_id: "ADMIN", role: "ADMIN" },
@@ -686,4 +710,249 @@ function daysBetween_(start, end) {
   const endDate = new Date(end);
   if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return NaN;
   return (endDate.getTime() - startDate.getTime()) / 86400000;
+}
+
+function buildSupplierAnalytics_(suppliers, products, purchaseOrders, purchaseOrderLines, receiving, leadTimeBySupplier) {
+  const totalSpend = purchaseOrders.reduce((sum, po) => sum + Number(po.total_amount || po.subtotal_amount || 0), 0);
+  return suppliers.map((supplier) => {
+    const supplierOrders = purchaseOrders.filter((po) => po.supplier_id === supplier.supplier_id);
+    const supplierLines = purchaseOrderLines.filter((line) => line.supplier_id === supplier.supplier_id);
+    const supplierReceiving = receiving.filter((row) => row.supplier_id === supplier.supplier_id);
+    const boughtProductIds = unique_(supplierLines.map((line) => line.product_id).filter(Boolean));
+    const qualityScores = supplierReceiving.map((row) => Number(row.quality_score || 0)).filter((score) => score > 0);
+    const productAccuracyScores = supplierReceiving.map((row) => Number(row.product_accuracy_score || 0)).filter((score) => score > 0);
+    const quantityAccuracyValues = supplierLines.map((line) => {
+      const ordered = Number(line.qty_ordered || 0);
+      const received = Number(line.qty_received_total || 0);
+      if (ordered <= 0) return null;
+      return Math.max(0, 1 - Math.abs(ordered - received) / ordered) * 100;
+    }).filter((value) => value !== null);
+    const spend = supplierOrders.reduce((sum, po) => sum + Number(po.total_amount || po.subtotal_amount || 0), 0);
+    const lead = leadTimeBySupplier[supplier.supplier_id] || fallbackLeadTimeStats_();
+    return {
+      supplier_id: supplier.supplier_id,
+      supplier_name: supplier.supplier_name,
+      email: supplier.email || "",
+      phone: supplier.phone || "",
+      products_bought: boughtProductIds.map((productId) => {
+        const product = products.find((item) => item.product_id === productId);
+        return product ? product.product_name : productId;
+      }).join(", "),
+      product_count: boughtProductIds.length,
+      total_orders: supplierOrders.length,
+      completed_orders: supplierOrders.filter((po) => po.actual_completed_date || po.actual_first_received_date || po.po_status === "COMPLETE").length,
+      total_purchase_amount: round_(spend, 2),
+      spend_share_percent: totalSpend > 0 ? round_(spend / totalSpend * 100, 1) : 0,
+      avg_lead_time_days: lead.average,
+      std_lead_time_days: lead.stdDev,
+      lead_time_samples: lead.count,
+      avg_quality_score: round_(average_(qualityScores), 2),
+      quality_percent: qualityScores.length ? round_(average_(qualityScores) / 5 * 100, 1) : 0,
+      product_accuracy_percent: productAccuracyScores.length ? round_(average_(productAccuracyScores) / 5 * 100, 1) : 0,
+      quantity_accuracy_percent: quantityAccuracyValues.length ? round_(average_(quantityAccuracyValues), 1) : 0,
+      receiving_count: supplierReceiving.length
+    };
+  });
+}
+
+function buildProductPlanning_(product, suppliers, purchaseOrders, purchaseOrderLines, movements, snapshots, leadTimeBySupplier) {
+  const usage = buildDailyUsageStats_(product.product_id, movements);
+  const supplierId = chooseSupplierForProduct_(product.product_id, purchaseOrderLines);
+  const supplier = suppliers.find((item) => item.supplier_id === supplierId) || {};
+  const lead = leadTimeBySupplier[supplierId] || fallbackLeadTimeStats_();
+  const currentQty = snapshots
+    .filter((row) => row.product_id === product.product_id)
+    .reduce((sum, row) => sum + Number(row.current_qty || 0), 0);
+  const velocityDays = velocityDays_(product.velocity_class);
+  const demandDuringLeadTime = usage.averageDailyUsage * lead.average;
+  const safetyStock = 1.65 * Math.sqrt(
+    (lead.average * Math.pow(usage.stdDailyUsage, 2))
+    + (Math.pow(usage.averageDailyUsage, 2) * Math.pow(lead.stdDev, 2))
+  );
+  const reorderPoint = demandDuringLeadTime + safetyStock;
+  const targetStock = Math.max(reorderPoint, usage.averageDailyUsage * velocityDays);
+
+  return {
+    product_id: product.product_id,
+    product_name: product.product_name,
+    velocity_class: product.velocity_class || "MEDIUM",
+    supplier_id: supplierId || "",
+    supplier_name: supplier.supplier_name || "",
+    current_qty: round_(currentQty, 2),
+    average_daily_usage: round_(usage.averageDailyUsage, 2),
+    std_daily_usage: round_(usage.stdDailyUsage, 2),
+    usage_days: usage.days,
+    avg_lead_time_days: lead.average,
+    std_lead_time_days: lead.stdDev,
+    demand_during_lead_time: round_(demandDuringLeadTime, 2),
+    safety_stock: round_(safetyStock, 2),
+    reorder_point: Math.ceil(reorderPoint),
+    target_stock_level: Math.ceil(targetStock),
+    recommended_order_qty: Math.max(0, Math.ceil(targetStock - currentQty)),
+    status: currentQty <= reorderPoint ? "REORDER" : currentQty < targetStock ? "WATCH" : "OK",
+    notes: usage.samples ? "Calculated from movement history." : "No usage history yet; using zero demand fallback."
+  };
+}
+
+function buildInventorySnapshot_(products, lots, movements) {
+  const grouped = {};
+  movements.forEach((movement) => {
+    const qty = Number(movement.qty_change || 0);
+    const locationId = movement.to_location_id || movement.from_location_id || "";
+    const key = [movement.product_id, movement.internal_lot_id, locationId].join("|");
+    if (!grouped[key]) {
+      grouped[key] = {
+        product_id: movement.product_id,
+        internal_lot_id: movement.internal_lot_id,
+        location_id: locationId,
+        current_qty: 0,
+        unit_type: movement.unit_type || ""
+      };
+    }
+    grouped[key].current_qty += qty;
+  });
+
+  return Object.keys(grouped)
+    .map((key) => {
+      const row = grouped[key];
+      const product = products.find((item) => item.product_id === row.product_id) || {};
+      const lot = lots.find((item) => item.internal_lot_id === row.internal_lot_id) || {};
+      const daysSinceReceived = lot.received_date ? Math.max(0, Math.floor(daysBetween_(lot.received_date, new Date()))) : "";
+      return {
+        ...row,
+        current_qty: round_(row.current_qty, 2),
+        product_name: product.product_name || row.product_id,
+        supplier_id: lot.supplier_id || "",
+        days_since_received: daysSinceReceived,
+        inventory_status: row.current_qty > 0 ? "AVAILABLE" : "EMPTY",
+        recommended_action: row.current_qty > 0 ? "Use FIFO before newer lots." : "No stock at this location."
+      };
+    })
+    .filter((row) => Number(row.current_qty || 0) !== 0);
+}
+
+function buildRecommendations_(planningRows) {
+  return planningRows
+    .filter((row) => row.status !== "OK" || Number(row.recommended_order_qty || 0) > 0)
+    .map((row) => ({
+      recommendation_type: row.status === "REORDER" ? "REORDER_NOW" : "BUILD_TO_TARGET",
+      product_id: row.product_id,
+      product_name: row.product_name,
+      supplier_id: row.supplier_id,
+      supplier_name: row.supplier_name,
+      recommended_qty: row.recommended_order_qty,
+      reorder_point: row.reorder_point,
+      target_stock_level: row.target_stock_level,
+      confidence_score: row.usage_days > 0 ? 0.75 : 0.35,
+      reason_text: row.status === "REORDER"
+        ? "Current stock is at or below reorder point."
+        : "Current stock is below target stock level."
+    }));
+}
+
+function buildDailyUsageStats_(productId, movements) {
+  const usageByDate = {};
+  const usageMovements = movements.filter((movement) => {
+    if (movement.product_id !== productId) return false;
+    const qty = Number(movement.qty_change || 0);
+    const type = String(movement.movement_type || "").toUpperCase();
+    return qty < 0 || ["SALE", "SHIP", "PICK", "PACK", "USE", "ADJUST_OUT"].includes(type);
+  });
+  usageMovements.forEach((movement) => {
+    const dateKey = dateKey_(movement.timestamp);
+    if (!dateKey) return;
+    usageByDate[dateKey] = (usageByDate[dateKey] || 0) + Math.abs(Number(movement.qty_change || 0));
+  });
+  const dates = Object.keys(usageByDate).sort();
+  if (!dates.length) {
+    return { averageDailyUsage: 0, stdDailyUsage: 0, days: 0, samples: 0 };
+  }
+  const start = new Date(dates[0]);
+  const end = new Date(dates[dates.length - 1]);
+  const totalDays = Math.max(1, Math.floor(daysBetween_(start, end)) + 1);
+  const dailyValues = [];
+  for (let i = 0; i < totalDays; i++) {
+    const day = new Date(start.getTime() + i * 86400000);
+    dailyValues.push(usageByDate[dateKey_(day)] || 0);
+  }
+  return {
+    averageDailyUsage: average_(dailyValues),
+    stdDailyUsage: standardDeviation_(dailyValues),
+    days: totalDays,
+    samples: usageMovements.length
+  };
+}
+
+function buildLeadTimeStatsBySupplier_(purchaseOrders) {
+  const bySupplier = {};
+  purchaseOrders.forEach((po) => {
+    const supplierId = po.supplier_id;
+    const orderDate = po.order_date;
+    const receivedDate = po.actual_first_received_date || po.actual_completed_date;
+    if (!supplierId || !orderDate || !receivedDate) return;
+    const days = daysBetween_(orderDate, receivedDate);
+    if (!isFinite(days) || days < 0) return;
+    if (!bySupplier[supplierId]) bySupplier[supplierId] = [];
+    bySupplier[supplierId].push(days);
+  });
+  const stats = {};
+  Object.keys(bySupplier).forEach((supplierId) => {
+    stats[supplierId] = {
+      average: round_(average_(bySupplier[supplierId]), 2),
+      stdDev: round_(standardDeviation_(bySupplier[supplierId]), 2),
+      count: bySupplier[supplierId].length
+    };
+  });
+  return stats;
+}
+
+function chooseSupplierForProduct_(productId, purchaseOrderLines) {
+  const counts = {};
+  purchaseOrderLines
+    .filter((line) => line.product_id === productId && line.supplier_id)
+    .forEach((line) => {
+      counts[line.supplier_id] = (counts[line.supplier_id] || 0) + 1;
+    });
+  return Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || "";
+}
+
+function fallbackLeadTimeStats_() {
+  return { average: 5, stdDev: 0, count: 0 };
+}
+
+function velocityDays_(velocityClass) {
+  const value = String(velocityClass || "").toUpperCase();
+  if (value === "FAST") return 10;
+  if (value === "SLOW") return 60;
+  return 40;
+}
+
+function average_(values) {
+  const clean = values.map(Number).filter((value) => isFinite(value));
+  if (!clean.length) return 0;
+  return clean.reduce((sum, value) => sum + value, 0) / clean.length;
+}
+
+function standardDeviation_(values) {
+  const clean = values.map(Number).filter((value) => isFinite(value));
+  if (clean.length < 2) return 0;
+  const avg = average_(clean);
+  const variance = clean.reduce((sum, value) => sum + Math.pow(value - avg, 2), 0) / (clean.length - 1);
+  return Math.sqrt(variance);
+}
+
+function dateKey_(value) {
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return "";
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd");
+}
+
+function unique_(values) {
+  return Array.from(new Set(values));
+}
+
+function round_(value, decimals) {
+  const n = Number(value || 0);
+  const factor = Math.pow(10, decimals || 0);
+  return Math.round(n * factor) / factor;
 }
