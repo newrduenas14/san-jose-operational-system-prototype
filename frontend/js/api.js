@@ -1,15 +1,125 @@
 import { requirePermission } from "./permissions.js";
 import { numberValue, today, uid } from "./utils.js";
-import { GOOGLE_SCRIPT_WEB_APP_URL } from "./config.js?v=opsupdate1";
+import { GOOGLE_SCRIPT_WEB_APP_URL } from "./config.js?v=smooth1";
 
 const DB_KEY = "sjops.database.v1";
+const APPS_CACHE_PREFIX = "sjops.apps.cache.";
+const APPS_CACHE_TTL_MS = 45000;
+const READ_ACTIONS = new Set([
+  "getDashboard",
+  "listProducts",
+  "listSuppliers",
+  "listLocations",
+  "listPurchaseOrders",
+  "getPurchaseOrderDetail",
+  "inventorySnapshot",
+  "getOperationalReports"
+]);
+
 let dbCache;
+const pendingAppsRequests = new Map();
 
 function useAppsScript() {
   return Boolean(GOOGLE_SCRIPT_WEB_APP_URL && GOOGLE_SCRIPT_WEB_APP_URL.includes("/exec"));
 }
 
 async function callAppsScript(action, payload = {}) {
+  const cacheKey = appsCacheKey(action, payload);
+  if (READ_ACTIONS.has(action)) {
+    const cached = readAppsCache(cacheKey);
+    if (cached) return cached;
+    if (pendingAppsRequests.has(cacheKey)) return pendingAppsRequests.get(cacheKey);
+  }
+
+  const request = new Promise((resolve, reject) => {
+    const callback = `sjopsCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script = document.createElement("script");
+    const url = new URL(GOOGLE_SCRIPT_WEB_APP_URL);
+    url.searchParams.set("action", action);
+    url.searchParams.set("payload", JSON.stringify(payload));
+    url.searchParams.set("callback", callback);
+
+    const cleanup = () => {
+      delete window[callback];
+      script.remove();
+      pendingAppsRequests.delete(cacheKey);
+    };
+
+    window[callback] = (data) => {
+      cleanup();
+      if (!data.ok) {
+        reject(new Error(data.error || "Apps Script request failed."));
+        return;
+      }
+      if (READ_ACTIONS.has(action)) {
+        writeAppsCache(cacheKey, data.result);
+      } else {
+        clearAppsCache();
+      }
+      resolve(data.result);
+    };
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("Could not reach Apps Script. Check deployment access and version."));
+    };
+
+    script.src = url.toString();
+    document.body.appendChild(script);
+  });
+
+  if (READ_ACTIONS.has(action)) {
+    pendingAppsRequests.set(cacheKey, request);
+  }
+  return request;
+}
+
+function appsCacheKey(action, payload) {
+  return `${APPS_CACHE_PREFIX}${action}:${JSON.stringify(payload || {})}`;
+}
+
+function readAppsCache(key) {
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(key) || "null");
+    if (!cached || Date.now() - cached.savedAt > APPS_CACHE_TTL_MS) return null;
+    return cached.value;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function writeAppsCache(key, value) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), value }));
+  } catch (_error) {
+    // Browsers can disable storage; the app still works without cache.
+  }
+}
+
+function clearAppsCache() {
+  try {
+    Object.keys(sessionStorage)
+      .filter((key) => key.startsWith(APPS_CACHE_PREFIX))
+      .forEach((key) => sessionStorage.removeItem(key));
+  } catch (_error) {
+    // Cache clearing is best-effort.
+  }
+}
+
+export function clearApiCache() {
+  clearAppsCache();
+}
+
+export function warmOperationalCache() {
+  if (!useAppsScript()) return;
+  ["getDashboard", "listProducts", "listSuppliers", "listPurchaseOrders", "inventorySnapshot"].forEach((action, index) => {
+    window.setTimeout(() => {
+      callAppsScript(action).catch(() => {});
+    }, index * 350);
+  });
+}
+
+async function legacyCallAppsScript(action, payload = {}) {
   return new Promise((resolve, reject) => {
     const callback = `sjopsCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const script = document.createElement("script");
@@ -97,6 +207,9 @@ export async function createProduct(user, input) {
     product_name: input.product_name,
     product_category: input.product_category || "",
     default_unit: input.default_unit || "BOX",
+    base_unit: input.base_unit || input.default_unit || "BOX",
+    units_per_purchase_unit: numberValue(input.units_per_purchase_unit, input.case_weight_lbs || 1),
+    can_break_case: input.can_break_case || "FALSE",
     case_weight_lbs: numberValue(input.case_weight_lbs),
     amazon_sku: input.amazon_sku || "",
     wholesale_sku: input.wholesale_sku || "",
@@ -195,6 +308,9 @@ export async function createPurchaseOrder(user, input) {
   const data = await db();
   const qty = numberValue(input.qty_ordered, 1);
   const unitCost = numberValue(input.unit_cost);
+  const product = data.products.find((item) => item.product_id === input.product_id) || {};
+  const unitsPerPurchaseUnit = numberValue(input.units_per_purchase_unit, product.units_per_purchase_unit || product.case_weight_lbs || 1);
+  const baseUnit = input.base_unit || product.base_unit || input.unit_type || product.default_unit || "EACH";
   const po = {
     po_id: uid("PO", data.purchaseOrders, "po_id"),
     po_status: "DRAFT",
@@ -220,7 +336,11 @@ export async function createPurchaseOrder(user, input) {
     qty_ordered: qty,
     qty_received_total: 0,
     qty_remaining: qty,
-    unit_type: input.unit_type || "BOX",
+    unit_type: input.unit_type || product.default_unit || "BOX",
+    base_unit: baseUnit,
+    units_per_purchase_unit: unitsPerPurchaseUnit,
+    expected_base_qty: qty * unitsPerPurchaseUnit,
+    case_weight_lbs: numberValue(input.case_weight_lbs, product.case_weight_lbs || 0),
     unit_cost: unitCost,
     line_total: qty * unitCost,
     supplier_expected_lot_number: input.supplier_expected_lot_number || "",
@@ -258,6 +378,10 @@ export async function receiveProduct(user, input) {
   const qtyDamaged = numberValue(input.qty_damaged);
   if (qtyReceived <= 0) throw new Error("Quantity received must be greater than zero.");
   const product = data.products.find((item) => item.product_id === line.product_id);
+  const unitsPerPurchaseUnit = numberValue(line.units_per_purchase_unit, product?.units_per_purchase_unit || product?.case_weight_lbs || 1);
+  const baseUnit = line.base_unit || product?.base_unit || line.unit_type;
+  const acceptedPurchaseQty = qtyReceived - qtyDamaged;
+  const acceptedBaseQty = numberValue(input.actual_base_qty, acceptedPurchaseQty * unitsPerPurchaseUnit);
   const location = recommendLocation(data, product);
   if (input.confirmed_location_id && input.confirmed_location_id !== location.location_id) {
     const exists = data.locations.some((loc) => loc.location_id === input.confirmed_location_id);
@@ -278,8 +402,12 @@ export async function receiveProduct(user, input) {
     received_by: user.user_id,
     qty_received: qtyReceived,
     qty_damaged: qtyDamaged,
-    qty_accepted: qtyReceived - qtyDamaged,
+    qty_accepted: acceptedPurchaseQty,
     unit_type: line.unit_type,
+    base_unit: baseUnit,
+    units_per_purchase_unit: unitsPerPurchaseUnit,
+    qty_accepted_base: acceptedBaseQty,
+    pallet_count: numberValue(input.pallet_count),
     quality_score: numberValue(input.quality_score, 5),
     recommended_location_id: location.location_id,
     confirmed_location_id: confirmedLocation,
@@ -294,9 +422,12 @@ export async function receiveProduct(user, input) {
     po_id: input.po_id,
     po_line_id: line.po_line_id,
     received_date: today(),
-    original_qty: receiving.qty_accepted,
-    current_qty_script: receiving.qty_accepted,
-    unit_type: line.unit_type,
+    original_qty: acceptedBaseQty,
+    current_qty_script: acceptedBaseQty,
+    unit_type: baseUnit,
+    purchase_qty_received: qtyReceived,
+    purchase_unit_type: line.unit_type,
+    pallet_count: receiving.pallet_count,
     unit_cost: line.unit_cost,
     current_location_id: confirmedLocation,
     status: "ACTIVE",
@@ -310,8 +441,8 @@ export async function receiveProduct(user, input) {
     user_id: user.user_id,
     product_id: line.product_id,
     internal_lot_id: internalLotId,
-    qty_change: receiving.qty_accepted,
-    unit_type: line.unit_type,
+    qty_change: acceptedBaseQty,
+    unit_type: baseUnit,
     from_location_id: "SUPPLIER",
     to_location_id: confirmedLocation,
     related_po_id: input.po_id,
@@ -330,6 +461,41 @@ export async function receiveProduct(user, input) {
   data.inventoryMovements.push(movement);
   save();
   return { receiving, lot, movement };
+}
+
+export async function recordInventoryMovement(user, input) {
+  if (useAppsScript()) return callAppsScript("recordInventoryMovement", { user, input });
+  requirePermission(user, "inventory:adjust");
+  const data = await db();
+  const lot = data.lots.find((item) => item.internal_lot_id === input.internal_lot_id || item.qr_value === input.internal_lot_id || item.supplier_lot_number === input.internal_lot_id);
+  if (!lot) throw new Error("Lot was not found.");
+  const qty = numberValue(input.qty);
+  if (qty <= 0) throw new Error("Quantity must be greater than zero.");
+  const type = String(input.movement_type || "SALE").toUpperCase();
+  const direction = type === "ADJUST_IN" ? 1 : -1;
+  const qtyChange = qty * direction;
+  const movement = {
+    movement_id: uid("MOV", data.inventoryMovements, "movement_id"),
+    movement_type: type,
+    timestamp: new Date().toISOString(),
+    user_id: user.user_id,
+    product_id: lot.product_id,
+    internal_lot_id: lot.internal_lot_id,
+    qty_change: qtyChange,
+    unit_type: input.unit_type || lot.unit_type,
+    from_location_id: lot.current_location_id,
+    to_location_id: type === "ADJUST_IN" ? lot.current_location_id : "OUTBOUND",
+    related_po_id: lot.po_id || "",
+    related_receiving_id: "",
+    scan_code: input.internal_lot_id,
+    device_id: "WEB-PROTOTYPE",
+    approval_status: "APPROVED",
+    notes: input.notes || ""
+  };
+  lot.current_qty_script = numberValue(lot.current_qty_script) + qtyChange;
+  data.inventoryMovements.push(movement);
+  save();
+  return movement;
 }
 
 export function purchaseOrderQrValue(productId, qty, supplierLotNumber = "") {
