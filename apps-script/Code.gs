@@ -1,4 +1,4 @@
-const SPREADSHEET_ID = "1XYaMXKGR5EG8VS38PPiHFNbtmwX5Ae6N33jLE72nxKE";
+const SPREADSHEET_ID = "PASTE_YOUR_SPREADSHEET_ID_HERE";
 
 const ROLES = {
   ADMIN: "ADMIN",
@@ -14,6 +14,7 @@ const PERMISSIONS = {
     "purchaseOrders:actions",
     "receiving:create",
     "inventory:view",
+    "inventory:adjust",
     "scanner:lookup"
   ],
   MANAGER: [
@@ -23,11 +24,13 @@ const PERMISSIONS = {
     "purchaseOrders:actions",
     "receiving:create",
     "inventory:view",
+    "inventory:adjust",
     "scanner:lookup"
   ],
   OPERATOR: [
     "receiving:create",
     "inventory:view",
+    "inventory:adjust",
     "scanner:lookup"
   ]
 };
@@ -62,6 +65,7 @@ function handleApiRequest_(action, payloadText, callback) {
       createPurchaseOrder,
       purchaseOrderAction,
       receiveProduct,
+      recordInventoryMovement,
       inventorySnapshot,
       getOperationalReports,
       lookupScan,
@@ -107,6 +111,7 @@ function createProduct(payload) {
   if (!input.product_name) throw new Error("Product name is required.");
 
   const products = readTable_("PRODUCTS");
+  ensureTableColumns_("PRODUCTS", ["base_unit", "units_per_purchase_unit", "can_break_case"]);
   const productId = input.product_id || nextId_("PRODUCTS", "product_id", "PROD");
   const stock = calculateStockLevels_(input);
   if (products.some((row) => row.product_id === productId)) {
@@ -118,6 +123,9 @@ function createProduct(payload) {
     product_name: input.product_name,
     product_category: input.product_category || "",
     default_unit: input.default_unit || "BOX",
+    base_unit: input.base_unit || input.default_unit || "BOX",
+    units_per_purchase_unit: Number(input.units_per_purchase_unit || input.case_weight_lbs || 1),
+    can_break_case: input.can_break_case || "FALSE",
     case_weight_lbs: Number(input.case_weight_lbs || 0),
     amazon_sku: input.amazon_sku || "",
     wholesale_sku: input.wholesale_sku || "",
@@ -229,8 +237,13 @@ function createPurchaseOrder(payload) {
 
   const qty = Number(input.qty_ordered || 1);
   const unitCost = Number(input.unit_cost || 0);
+  const product = readTable_("PRODUCTS").find((row) => row.product_id === input.product_id) || {};
+  const unitsPerPurchaseUnit = Number(input.units_per_purchase_unit || product.units_per_purchase_unit || product.case_weight_lbs || 1) || 1;
+  const baseUnit = input.base_unit || product.base_unit || input.unit_type || product.default_unit || "EACH";
+  ensureTableColumns_("PURCHASE_ORDER_LINES", ["base_unit", "units_per_purchase_unit", "expected_base_qty", "case_weight_lbs"]);
   const poId = nextId_("PURCHASE_ORDERS", "po_id", "PO");
   const poLineId = nextId_("PURCHASE_ORDER_LINES", "po_line_id", "POL");
+  const supplierLotNumber = input.supplier_expected_lot_number || supplierLotNumber_(input.supplier_id, input.product_id);
 
   const po = {
     po_id: poId,
@@ -268,17 +281,28 @@ function createPurchaseOrder(payload) {
     qty_ordered: qty,
     qty_received_total: 0,
     qty_remaining: qty,
-    unit_type: input.unit_type || "BOX",
+    unit_type: input.unit_type || product.default_unit || "BOX",
+    base_unit: baseUnit,
+    units_per_purchase_unit: unitsPerPurchaseUnit,
+    expected_base_qty: qty * unitsPerPurchaseUnit,
+    case_weight_lbs: Number(input.case_weight_lbs || product.case_weight_lbs || 0),
     unit_cost: unitCost,
     currency: "USD",
     line_total: qty * unitCost,
-    supplier_expected_lot_number: input.supplier_expected_lot_number || "",
+    supplier_expected_lot_number: supplierLotNumber,
     notes: input.notes || ""
   };
 
   appendRecord_("PURCHASE_ORDERS", po);
   appendRecord_("PURCHASE_ORDER_LINES", line);
   return po;
+}
+
+function supplierLotNumber_(supplierId, productId) {
+  const supplier = String(supplierId || "SUP").replace(/[^A-Z0-9]/gi, "").slice(-4).toUpperCase();
+  const product = String(productId || "PROD").replace(/[^A-Z0-9]/gi, "").slice(-4).toUpperCase();
+  const date = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyMMdd");
+  return `${supplier}-${product}-${date}`;
 }
 
 function purchaseOrderAction(payload) {
@@ -323,6 +347,8 @@ function receiveProduct(payload) {
     if (qtyReceived <= 0) throw new Error("Quantity received must be greater than zero.");
 
     const product = readTable_("PRODUCTS").find((row) => row.product_id === line.product_id);
+    const unitsPerPurchaseUnit = Number(line.units_per_purchase_unit || (product && (product.units_per_purchase_unit || product.case_weight_lbs)) || 1) || 1;
+    const baseUnit = line.base_unit || (product && product.base_unit) || line.unit_type;
     const recommendedLocation = recommendLocation_(product);
     const confirmedLocationId = input.confirmed_location_id || recommendedLocation.location_id;
     if (!readTable_("LOCATIONS").some((row) => row.location_id === confirmedLocationId || row.qr_value === confirmedLocationId)) {
@@ -333,6 +359,11 @@ function receiveProduct(payload) {
     const receivingId = nextId_("RECEIVING", "receiving_id", "RCV");
     const movementId = nextId_("INVENTORY_MOVEMENTS", "movement_id", "MOV");
     const acceptedQty = qtyReceived - qtyDamaged;
+    const acceptedBaseQty = Number(input.actual_base_qty || 0) > 0
+      ? Number(input.actual_base_qty)
+      : acceptedQty * unitsPerPurchaseUnit;
+    ensureTableColumns_("RECEIVING", ["base_unit", "units_per_purchase_unit", "qty_accepted_base", "pallet_count"]);
+    ensureTableColumns_("LOTS", ["purchase_qty_received", "purchase_unit_type", "pallet_count"]);
 
     const receiving = {
       receiving_id: receivingId,
@@ -349,6 +380,10 @@ function receiveProduct(payload) {
       qty_damaged: qtyDamaged,
       qty_accepted: acceptedQty,
       unit_type: line.unit_type,
+      base_unit: baseUnit,
+      units_per_purchase_unit: unitsPerPurchaseUnit,
+      qty_accepted_base: acceptedBaseQty,
+      pallet_count: Number(input.pallet_count || 0),
       quality_score: Number(input.quality_score || 5),
       product_accuracy_score: 5,
       over_under_status: "MATCH",
@@ -367,9 +402,12 @@ function receiveProduct(payload) {
       po_id: input.po_id,
       po_line_id: input.po_line_id,
       received_date: new Date(),
-      original_qty: acceptedQty,
-      current_qty_script: acceptedQty,
-      unit_type: line.unit_type,
+      original_qty: acceptedBaseQty,
+      current_qty_script: acceptedBaseQty,
+      unit_type: baseUnit,
+      purchase_qty_received: qtyReceived,
+      purchase_unit_type: line.unit_type,
+      pallet_count: Number(input.pallet_count || 0),
       unit_cost: Number(line.unit_cost || 0),
       currency: line.currency || "USD",
       current_location_id: confirmedLocationId,
@@ -391,8 +429,8 @@ function receiveProduct(payload) {
       product_id: line.product_id,
       internal_lot_id: internalLotId,
       package_id: "",
-      qty_change: acceptedQty,
-      unit_type: line.unit_type,
+      qty_change: acceptedBaseQty,
+      unit_type: baseUnit,
       from_location_id: "SUPPLIER",
       to_location_id: confirmedLocationId,
       related_po_id: input.po_id,
@@ -447,6 +485,55 @@ function lookupScan(payload) {
   if (pkg) return { type: "AMAZON_PACKAGE", record: pkg };
 
   return null;
+}
+
+function recordInventoryMovement(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "inventory:adjust");
+
+  const input = payload.input || {};
+  const lotKey = String(input.internal_lot_id || "").trim();
+  if (!lotKey) throw new Error("Lot is required.");
+
+  const lots = readTable_("LOTS");
+  const lot = lots.find((row) =>
+    [row.internal_lot_id, row.qr_value, row.supplier_lot_number].includes(lotKey)
+  );
+  if (!lot) throw new Error("Lot was not found.");
+
+  const qty = Number(input.qty || 0);
+  if (qty <= 0) throw new Error("Quantity must be greater than zero.");
+
+  const movementType = String(input.movement_type || "SALE").toUpperCase();
+  const direction = movementType === "ADJUST_IN" ? 1 : -1;
+  const qtyChange = qty * direction;
+  const movement = {
+    movement_id: nextId_("INVENTORY_MOVEMENTS", "movement_id", "MOV"),
+    movement_type: movementType,
+    timestamp: new Date(),
+    user_id: user.user_id || user.role || "UNKNOWN",
+    product_id: lot.product_id,
+    internal_lot_id: lot.internal_lot_id,
+    package_id: "",
+    qty_change: qtyChange,
+    unit_type: input.unit_type || lot.unit_type,
+    from_location_id: lot.current_location_id,
+    to_location_id: direction > 0 ? lot.current_location_id : "OUTBOUND",
+    related_po_id: lot.po_id || "",
+    related_receiving_id: "",
+    related_sales_order_id: "",
+    related_pick_task_id: "",
+    related_amazon_order_id: "",
+    scan_code: lotKey,
+    device_id: "WEB_APP",
+    approval_status: "APPROVED",
+    notes: input.notes || ""
+  };
+
+  appendRecord_("INVENTORY_MOVEMENTS", movement);
+  updateLotQuantity_(lot.internal_lot_id, qtyChange);
+  return movement;
 }
 
 function matchAmazonPackageScan(payload) {
@@ -528,6 +615,104 @@ function getOperationalReports() {
   };
 }
 
+function seedMockOperationalData() {
+  [
+    "INVENTORY_MOVEMENTS",
+    "RECEIVING",
+    "LOTS",
+    "PURCHASE_ORDER_LINES",
+    "PURCHASE_ORDERS",
+    "PRODUCTS",
+    "SUPPLIERS",
+    "LOCATIONS",
+    "AMAZON_PACKAGES",
+    "AMAZON_SCAN_MATCHES"
+  ].forEach(clearTable_);
+
+  const suppliers = [
+    { supplier_id: "SUP-001", supplier_name: "Pacific Packaging Co.", contact_name: "Maria Lopez", email: "orders@pacpack.example", phone: "408-555-0101", address: "1200 Berryessa Rd, San Jose, CA", payment_terms: "Net 30", default_currency: "USD", lead_time_expected_days: 5, is_active: true, notes: "Primary packaging supplier." },
+    { supplier_id: "SUP-002", supplier_name: "Bay Area Ingredients", contact_name: "Owen Chen", email: "sales@bayingredients.example", phone: "408-555-0102", address: "88 Industrial Way, Fremont, CA", payment_terms: "Net 15", default_currency: "USD", lead_time_expected_days: 6, is_active: true, notes: "Bulk ingredient supplier." },
+    { supplier_id: "SUP-003", supplier_name: "Golden State Goods", contact_name: "Nina Patel", email: "nina@gsgoods.example", phone: "408-555-0103", address: "455 Market St, San Jose, CA", payment_terms: "Net 30", default_currency: "USD", lead_time_expected_days: 8, is_active: true, notes: "Seasonal product supplier." },
+    { supplier_id: "SUP-004", supplier_name: "South Bay Wholesale", contact_name: "Luis Romero", email: "orders@southbaywholesale.example", phone: "408-555-0104", address: "90 Trimble Rd, San Jose, CA", payment_terms: "Net 30", default_currency: "USD", lead_time_expected_days: 4, is_active: true, notes: "Fast replenishment supplier." },
+    { supplier_id: "SUP-005", supplier_name: "Sierra Label & Supply", contact_name: "Avery Brooks", email: "support@sierralabel.example", phone: "408-555-0105", address: "2100 Zanker Rd, San Jose, CA", payment_terms: "Net 45", default_currency: "USD", lead_time_expected_days: 10, is_active: true, notes: "Labels and printed materials." }
+  ];
+
+  const products = [
+    { product_id: "PROD-001", product_name: "Mini Tornillo", product_category: "Packaging", default_unit: "BOX", case_weight_lbs: 12, amazon_sku: "AMZ-MINI-TORN", wholesale_sku: "WH-MINI-TORN", barcode_or_qr_value: "PROD-001", min_stock_qty: 20, target_stock_qty: 80, velocity_class: "FAST", storage_zone_preference: "B", is_active: true, notes: "Fast moving packaging item." },
+    { product_id: "PROD-002", product_name: "Almond Flour 25 lb", product_category: "Ingredients", default_unit: "BAG", case_weight_lbs: 25, amazon_sku: "AMZ-ALM-FLR", wholesale_sku: "WH-ALM-FLR", barcode_or_qr_value: "PROD-002", min_stock_qty: 15, target_stock_qty: 90, velocity_class: "MEDIUM", storage_zone_preference: "A", is_active: true, notes: "Dry ingredient." },
+    { product_id: "PROD-003", product_name: "Retail Label Roll", product_category: "Labels", default_unit: "ROLL", case_weight_lbs: 8, amazon_sku: "AMZ-LABEL-ROLL", wholesale_sku: "WH-LABEL-ROLL", barcode_or_qr_value: "PROD-003", min_stock_qty: 10, target_stock_qty: 60, velocity_class: "MEDIUM", storage_zone_preference: "C", is_active: true, notes: "Product label roll." },
+    { product_id: "PROD-004", product_name: "Shipping Carton Small", product_category: "Packaging", default_unit: "BUNDLE", case_weight_lbs: 15, amazon_sku: "AMZ-CARTON-S", wholesale_sku: "WH-CARTON-S", barcode_or_qr_value: "PROD-004", min_stock_qty: 25, target_stock_qty: 120, velocity_class: "FAST", storage_zone_preference: "B", is_active: true, notes: "Small shipping cartons." },
+    { product_id: "PROD-005", product_name: "Organic Dried Mango", product_category: "Finished Goods", default_unit: "CASE", case_weight_lbs: 18, amazon_sku: "AMZ-MANGO-ORG", wholesale_sku: "WH-MANGO-ORG", barcode_or_qr_value: "PROD-005", min_stock_qty: 8, target_stock_qty: 45, velocity_class: "SLOW", storage_zone_preference: "D", is_active: true, notes: "Slow moving seasonal item." },
+    { product_id: "PROD-006", product_name: "Thermal Receipt Paper", product_category: "Supplies", default_unit: "CASE", case_weight_lbs: 10, amazon_sku: "AMZ-THERM-PAPER", wholesale_sku: "WH-THERM-PAPER", barcode_or_qr_value: "PROD-006", min_stock_qty: 6, target_stock_qty: 30, velocity_class: "SLOW", storage_zone_preference: "C", is_active: true, notes: "Operational supply." }
+  ];
+
+  const locations = [
+    { location_id: "LOC-A-01-01", zone: "A", aisle: "01", rack: "01", level: "01", bin: "01", location_type: "DRY_STORAGE", capacity_units: 180, capacity_weight_lbs: 2500, current_status: "AVAILABLE", allowed_categories: "Ingredients", priority_rank: 1, is_active: true, qr_value: "LOC-A-01-01", notes: "Dry ingredient storage." },
+    { location_id: "LOC-B-02-01", zone: "B", aisle: "02", rack: "01", level: "01", bin: "01", location_type: "PACKAGING", capacity_units: 220, capacity_weight_lbs: 1800, current_status: "AVAILABLE", allowed_categories: "Packaging", priority_rank: 1, is_active: true, qr_value: "LOC-B-02-01", notes: "Packaging forward pick." },
+    { location_id: "LOC-C-01-02", zone: "C", aisle: "01", rack: "02", level: "01", bin: "02", location_type: "SUPPLIES", capacity_units: 120, capacity_weight_lbs: 900, current_status: "AVAILABLE", allowed_categories: "Labels", priority_rank: 2, is_active: true, qr_value: "LOC-C-01-02", notes: "Labels and supplies." },
+    { location_id: "LOC-D-03-01", zone: "D", aisle: "03", rack: "01", level: "01", bin: "01", location_type: "FINISHED_GOODS", capacity_units: 160, capacity_weight_lbs: 1700, current_status: "AVAILABLE", allowed_categories: "Finished Goods", priority_rank: 1, is_active: true, qr_value: "LOC-D-03-01", notes: "Finished goods reserve." }
+  ];
+
+  const purchaseOrders = [
+    { po_id: "PO-000001", po_status: "COMPLETE", supplier_id: "SUP-001", created_by: "ADMIN", order_date: new Date("2026-05-20"), expected_delivery_date: new Date("2026-05-26"), actual_first_received_date: new Date("2026-05-25"), actual_completed_date: new Date("2026-05-25"), payment_terms: "Net 30", currency: "USD", subtotal_amount: 640, tax_amount: 0, shipping_amount: 45, total_amount: 685, recommendation_id: "", po_doc_url: "", po_pdf_url: "", email_status: "SENT", email_sent_at: new Date("2026-05-20"), printed_status: "PRINTED", printed_at: new Date("2026-05-20"), supplier_confirmation_status: "CONFIRMED", supplier_confirmed_delivery_date: new Date("2026-05-25"), notes: "Completed mock PO." },
+    { po_id: "PO-000002", po_status: "COMPLETE", supplier_id: "SUP-002", created_by: "ADMIN", order_date: new Date("2026-05-23"), expected_delivery_date: new Date("2026-05-30"), actual_first_received_date: new Date("2026-05-31"), actual_completed_date: new Date("2026-05-31"), payment_terms: "Net 15", currency: "USD", subtotal_amount: 1125, tax_amount: 0, shipping_amount: 70, total_amount: 1195, recommendation_id: "", po_doc_url: "", po_pdf_url: "", email_status: "SENT", email_sent_at: new Date("2026-05-23"), printed_status: "PRINTED", printed_at: new Date("2026-05-23"), supplier_confirmation_status: "CONFIRMED", supplier_confirmed_delivery_date: new Date("2026-05-31"), notes: "Completed mock PO." },
+    { po_id: "PO-000003", po_status: "COMPLETE", supplier_id: "SUP-005", created_by: "MANAGER", order_date: new Date("2026-05-28"), expected_delivery_date: new Date("2026-06-07"), actual_first_received_date: new Date("2026-06-08"), actual_completed_date: new Date("2026-06-08"), payment_terms: "Net 45", currency: "USD", subtotal_amount: 420, tax_amount: 0, shipping_amount: 35, total_amount: 455, recommendation_id: "", po_doc_url: "", po_pdf_url: "", email_status: "SENT", email_sent_at: new Date("2026-05-28"), printed_status: "PRINTED", printed_at: new Date("2026-05-28"), supplier_confirmation_status: "CONFIRMED", supplier_confirmed_delivery_date: new Date("2026-06-08"), notes: "Completed mock PO." },
+    { po_id: "PO-000004", po_status: "SENT", supplier_id: "SUP-004", created_by: "ADMIN", order_date: new Date("2026-06-10"), expected_delivery_date: new Date("2026-06-15"), actual_first_received_date: "", actual_completed_date: "", payment_terms: "Net 30", currency: "USD", subtotal_amount: 720, tax_amount: 0, shipping_amount: 50, total_amount: 770, recommendation_id: "", po_doc_url: "", po_pdf_url: "", email_status: "SENT", email_sent_at: new Date("2026-06-10"), printed_status: "PRINTED", printed_at: new Date("2026-06-10"), supplier_confirmation_status: "PENDING", supplier_confirmed_delivery_date: "", notes: "Pending mock PO." },
+    { po_id: "PO-000005", po_status: "DRAFT", supplier_id: "SUP-003", created_by: "MANAGER", order_date: new Date("2026-06-14"), expected_delivery_date: new Date("2026-06-24"), actual_first_received_date: "", actual_completed_date: "", payment_terms: "Net 30", currency: "USD", subtotal_amount: 900, tax_amount: 0, shipping_amount: 60, total_amount: 960, recommendation_id: "", po_doc_url: "", po_pdf_url: "", email_status: "NOT_SENT", email_sent_at: "", printed_status: "NOT_PRINTED", printed_at: "", supplier_confirmation_status: "PENDING", supplier_confirmed_delivery_date: "", notes: "Pending mock PO." }
+  ];
+
+  const lines = [
+    { po_line_id: "POL-000001", po_id: "PO-000001", supplier_id: "SUP-001", product_id: "PROD-004", line_status: "RECEIVED", qty_ordered: 80, qty_received_total: 80, qty_remaining: 0, unit_type: "BUNDLE", unit_cost: 8, currency: "USD", line_total: 640, supplier_expected_lot_number: "PPC-CTN-0525", notes: "" },
+    { po_line_id: "POL-000002", po_id: "PO-000002", supplier_id: "SUP-002", product_id: "PROD-002", line_status: "RECEIVED", qty_ordered: 45, qty_received_total: 43, qty_remaining: 0, unit_type: "BAG", unit_cost: 25, currency: "USD", line_total: 1125, supplier_expected_lot_number: "BAI-AF-0531", notes: "Two bags rejected as damaged." },
+    { po_line_id: "POL-000003", po_id: "PO-000003", supplier_id: "SUP-005", product_id: "PROD-003", line_status: "RECEIVED", qty_ordered: 60, qty_received_total: 60, qty_remaining: 0, unit_type: "ROLL", unit_cost: 7, currency: "USD", line_total: 420, supplier_expected_lot_number: "SLS-LBL-0608", notes: "" },
+    { po_line_id: "POL-000004", po_id: "PO-000004", supplier_id: "SUP-004", product_id: "PROD-001", line_status: "ORDERED", qty_ordered: 120, qty_received_total: 0, qty_remaining: 120, unit_type: "BOX", unit_cost: 6, currency: "USD", line_total: 720, supplier_expected_lot_number: "SBW-MT-0615", notes: "" },
+    { po_line_id: "POL-000005", po_id: "PO-000005", supplier_id: "SUP-003", product_id: "PROD-005", line_status: "ORDERED", qty_ordered: 75, qty_received_total: 0, qty_remaining: 75, unit_type: "CASE", unit_cost: 12, currency: "USD", line_total: 900, supplier_expected_lot_number: "GSG-MANGO-0624", notes: "" }
+  ];
+
+  const receiving = [
+    { receiving_id: "RCV-000001", po_id: "PO-000001", po_line_id: "POL-000001", supplier_id: "SUP-001", product_id: "PROD-004", scan_code: "PROD-004|QTY:80|SUPLOT:PPC-CTN-0525", internal_lot_id: "LOT-000001", supplier_lot_number: "PPC-CTN-0525", received_date: new Date("2026-05-25"), received_by: "OPERATOR", qty_received: 80, qty_damaged: 0, qty_accepted: 80, unit_type: "BUNDLE", quality_score: 5, product_accuracy_score: 5, over_under_status: "MATCH", recommended_location_id: "LOC-B-02-01", confirmed_location_id: "LOC-B-02-01", requires_supervisor_approval: false, approval_status: "APPROVED", notes: "" },
+    { receiving_id: "RCV-000002", po_id: "PO-000002", po_line_id: "POL-000002", supplier_id: "SUP-002", product_id: "PROD-002", scan_code: "PROD-002|QTY:45|SUPLOT:BAI-AF-0531", internal_lot_id: "LOT-000002", supplier_lot_number: "BAI-AF-0531", received_date: new Date("2026-05-31"), received_by: "OPERATOR", qty_received: 45, qty_damaged: 2, qty_accepted: 43, unit_type: "BAG", quality_score: 4, product_accuracy_score: 5, over_under_status: "UNDER", recommended_location_id: "LOC-A-01-01", confirmed_location_id: "LOC-A-01-01", requires_supervisor_approval: false, approval_status: "APPROVED", notes: "Two damaged bags." },
+    { receiving_id: "RCV-000003", po_id: "PO-000003", po_line_id: "POL-000003", supplier_id: "SUP-005", product_id: "PROD-003", scan_code: "PROD-003|QTY:60|SUPLOT:SLS-LBL-0608", internal_lot_id: "LOT-000003", supplier_lot_number: "SLS-LBL-0608", received_date: new Date("2026-06-08"), received_by: "OPERATOR", qty_received: 60, qty_damaged: 0, qty_accepted: 60, unit_type: "ROLL", quality_score: 5, product_accuracy_score: 4, over_under_status: "MATCH", recommended_location_id: "LOC-C-01-02", confirmed_location_id: "LOC-C-01-02", requires_supervisor_approval: false, approval_status: "APPROVED", notes: "" }
+  ];
+
+  const lots = [
+    { internal_lot_id: "LOT-000001", product_id: "PROD-004", supplier_id: "SUP-001", supplier_lot_number: "PPC-CTN-0525", po_id: "PO-000001", po_line_id: "POL-000001", received_date: new Date("2026-05-25"), original_qty: 80, current_qty_script: 48, unit_type: "BUNDLE", unit_cost: 8, currency: "USD", current_location_id: "LOC-B-02-01", status: "ACTIVE", expiration_date: "", qr_value: "LOT-000001", label_printed_status: "PRINTED", label_printed_at: new Date("2026-05-25"), created_at: new Date("2026-05-25"), updated_at: new Date("2026-06-16"), notes: "" },
+    { internal_lot_id: "LOT-000002", product_id: "PROD-002", supplier_id: "SUP-002", supplier_lot_number: "BAI-AF-0531", po_id: "PO-000002", po_line_id: "POL-000002", received_date: new Date("2026-05-31"), original_qty: 43, current_qty_script: 27, unit_type: "BAG", unit_cost: 25, currency: "USD", current_location_id: "LOC-A-01-01", status: "ACTIVE", expiration_date: new Date("2027-05-31"), qr_value: "LOT-000002", label_printed_status: "PRINTED", label_printed_at: new Date("2026-05-31"), created_at: new Date("2026-05-31"), updated_at: new Date("2026-06-16"), notes: "" },
+    { internal_lot_id: "LOT-000003", product_id: "PROD-003", supplier_id: "SUP-005", supplier_lot_number: "SLS-LBL-0608", po_id: "PO-000003", po_line_id: "POL-000003", received_date: new Date("2026-06-08"), original_qty: 60, current_qty_script: 51, unit_type: "ROLL", unit_cost: 7, currency: "USD", current_location_id: "LOC-C-01-02", status: "ACTIVE", expiration_date: "", qr_value: "LOT-000003", label_printed_status: "PRINTED", label_printed_at: new Date("2026-06-08"), created_at: new Date("2026-06-08"), updated_at: new Date("2026-06-16"), notes: "" }
+  ];
+
+  const movements = [
+    movement_("MOV-000001", "RECEIVE", "2026-05-25", "PROD-004", "LOT-000001", 80, "BUNDLE", "SUPPLIER", "LOC-B-02-01", "PO-000001", "RCV-000001"),
+    movement_("MOV-000002", "USE", "2026-06-01", "PROD-004", "LOT-000001", -12, "BUNDLE", "LOC-B-02-01", "PACK_STATION", "", ""),
+    movement_("MOV-000003", "USE", "2026-06-05", "PROD-004", "LOT-000001", -9, "BUNDLE", "LOC-B-02-01", "PACK_STATION", "", ""),
+    movement_("MOV-000004", "USE", "2026-06-11", "PROD-004", "LOT-000001", -11, "BUNDLE", "LOC-B-02-01", "PACK_STATION", "", ""),
+    movement_("MOV-000005", "RECEIVE", "2026-05-31", "PROD-002", "LOT-000002", 43, "BAG", "SUPPLIER", "LOC-A-01-01", "PO-000002", "RCV-000002"),
+    movement_("MOV-000006", "USE", "2026-06-03", "PROD-002", "LOT-000002", -5, "BAG", "LOC-A-01-01", "PRODUCTION", "", ""),
+    movement_("MOV-000007", "USE", "2026-06-09", "PROD-002", "LOT-000002", -7, "BAG", "LOC-A-01-01", "PRODUCTION", "", ""),
+    movement_("MOV-000008", "USE", "2026-06-14", "PROD-002", "LOT-000002", -4, "BAG", "LOC-A-01-01", "PRODUCTION", "", ""),
+    movement_("MOV-000009", "RECEIVE", "2026-06-08", "PROD-003", "LOT-000003", 60, "ROLL", "SUPPLIER", "LOC-C-01-02", "PO-000003", "RCV-000003"),
+    movement_("MOV-000010", "USE", "2026-06-12", "PROD-003", "LOT-000003", -6, "ROLL", "LOC-C-01-02", "LABEL_STATION", "", ""),
+    movement_("MOV-000011", "USE", "2026-06-15", "PROD-003", "LOT-000003", -3, "ROLL", "LOC-C-01-02", "LABEL_STATION", "", "")
+  ];
+
+  suppliers.forEach((record) => appendRecord_("SUPPLIERS", dated_(record)));
+  products.forEach((record) => appendRecord_("PRODUCTS", dated_(record)));
+  locations.forEach((record) => appendRecord_("LOCATIONS", record));
+  purchaseOrders.forEach((record) => appendRecord_("PURCHASE_ORDERS", record));
+  lines.forEach((record) => appendRecord_("PURCHASE_ORDER_LINES", record));
+  receiving.forEach((record) => appendRecord_("RECEIVING", record));
+  lots.forEach((record) => appendRecord_("LOTS", record));
+  movements.forEach((record) => appendRecord_("INVENTORY_MOVEMENTS", record));
+
+  return {
+    suppliers: suppliers.length,
+    products: products.length,
+    purchase_orders: purchaseOrders.length,
+    completed_purchase_orders: purchaseOrders.filter((po) => po.po_status === "COMPLETE").length,
+    pending_purchase_orders: purchaseOrders.filter((po) => po.po_status !== "COMPLETE").length
+  };
+}
+
 function testCreateProduct() {
   return createProduct({
     user: { user_id: "ADMIN", role: "ADMIN" },
@@ -603,6 +788,14 @@ function appendRecord_(sheetName, record) {
   meta.sheet.appendRow(meta.headers.map((header) => record[header] ?? ""));
 }
 
+function ensureTableColumns_(sheetName, requiredHeaders) {
+  const meta = tableMeta_(sheetName);
+  const missing = requiredHeaders.filter((header) => meta.headers.indexOf(header) < 0);
+  if (!missing.length) return;
+  const startColumn = meta.headers.length + 1;
+  meta.sheet.getRange(meta.headerRow, startColumn, 1, missing.length).setValues([missing]);
+}
+
 function nextId_(sheetName, idColumn, prefix) {
   const rows = readTable_(sheetName);
   const maxNumber = rows.reduce((max, row) => {
@@ -644,6 +837,23 @@ function updatePoLineReceived_(poLineId, qtyReceived) {
       meta.sheet.getRange(r, receivedIndex + 1).setValue(newReceived);
       meta.sheet.getRange(r, remainingIndex + 1).setValue(remaining);
       meta.sheet.getRange(r, statusIndex + 1).setValue(remaining === 0 ? "RECEIVED" : "PARTIALLY_RECEIVED");
+      return;
+    }
+  }
+}
+
+function updateLotQuantity_(internalLotId, qtyChange) {
+  const meta = tableMeta_("LOTS");
+  const idIndex = meta.headers.indexOf("internal_lot_id");
+  const qtyIndex = meta.headers.indexOf("current_qty_script");
+  const updatedIndex = meta.headers.indexOf("updated_at");
+  if (idIndex < 0 || qtyIndex < 0) return;
+
+  for (let r = meta.headerRow + 1; r <= meta.sheet.getLastRow(); r++) {
+    if (meta.sheet.getRange(r, idIndex + 1).getValue() === internalLotId) {
+      const current = Number(meta.sheet.getRange(r, qtyIndex + 1).getValue() || 0);
+      meta.sheet.getRange(r, qtyIndex + 1).setValue(current + Number(qtyChange || 0));
+      if (updatedIndex >= 0) meta.sheet.getRange(r, updatedIndex + 1).setValue(new Date());
       return;
     }
   }
@@ -955,4 +1165,46 @@ function round_(value, decimals) {
   const n = Number(value || 0);
   const factor = Math.pow(10, decimals || 0);
   return Math.round(n * factor) / factor;
+}
+
+function clearTable_(sheetName) {
+  const meta = tableMeta_(sheetName);
+  const dataRows = meta.sheet.getLastRow() - meta.headerRow;
+  if (dataRows > 0) {
+    meta.sheet.getRange(meta.headerRow + 1, 1, dataRows, meta.sheet.getLastColumn()).clearContent();
+  }
+}
+
+function dated_(record) {
+  const now = new Date();
+  return {
+    created_at: now,
+    updated_at: now,
+    ...record
+  };
+}
+
+function movement_(movementId, movementType, timestamp, productId, lotId, qty, unitType, fromLocation, toLocation, poId, receivingId) {
+  return {
+    movement_id: movementId,
+    movement_type: movementType,
+    timestamp: new Date(timestamp),
+    user_id: "MOCK_ADMIN",
+    product_id: productId,
+    internal_lot_id: lotId,
+    package_id: "",
+    qty_change: qty,
+    unit_type: unitType,
+    from_location_id: fromLocation,
+    to_location_id: toLocation,
+    related_po_id: poId || "",
+    related_receiving_id: receivingId || "",
+    related_sales_order_id: "",
+    related_pick_task_id: "",
+    related_amazon_order_id: "",
+    scan_code: lotId,
+    device_id: "MOCK_SEED",
+    approval_status: "APPROVED",
+    notes: "Mock operational seed data."
+  };
 }
