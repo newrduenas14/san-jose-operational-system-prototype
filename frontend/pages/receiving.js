@@ -1,5 +1,5 @@
-import { getPurchaseOrderDetail, listPurchaseOrders, receiveProduct } from "../js/api.js?v=phonefix1";
-import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js";
+import { getPurchaseOrderDetail, listPurchaseOrders, receiveProduct } from "../js/api.js?v=opsupdate1";
+import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=opsupdate1";
 import { formToObject, notice, table } from "../js/utils.js";
 
 export async function render(ctx) {
@@ -24,7 +24,8 @@ export async function render(ctx) {
             </select>
           </div>
           <div id="poLines" class="field full"></div>
-          <div class="field"><label>Product/Lot Scan</label><input id="receiveScan" name="scan_code" placeholder="Scan product or lot and press Enter"></div>
+          <div id="putAwayRecommendation" class="field full result">Select a PO to see the put-away recommendation placeholder.</div>
+          <div class="field"><label>PO/Product QR Scan</label><input id="receiveScan" name="scan_code" placeholder="Scan PO QR, product, or lot"></div>
           <div class="field"><label>Supplier Lot Number</label><input name="supplier_lot_number" placeholder="Not unique"></div>
           <div class="field"><label>Internal Lot ID</label><input name="internal_lot_id" placeholder="Auto if blank"></div>
           <div class="field"><label>Quantity Received</label><input name="qty_received" type="number" min="1" value="1" required></div>
@@ -47,7 +48,7 @@ export async function render(ctx) {
   poSelect.addEventListener("change", async () => renderLines(poSelect.value));
   const scanInput = document.getElementById("receiveScan");
   handleKeyboardScan(scanInput, (value) => {
-    document.getElementById("receiveResult").textContent = `Captured product/lot scan: ${value}`;
+    handleReceivingScan(value);
   });
   handleKeyboardScan(document.getElementById("locationScan"), (value) => {
     document.getElementById("receiveResult").textContent = `Captured location scan: ${value}`;
@@ -56,7 +57,7 @@ export async function render(ctx) {
   document.getElementById("startCamera").addEventListener("click", async () => {
     try {
       await startCameraScanner("receiveScan", (value) => {
-        document.getElementById("receiveResult").textContent = `Camera captured: ${value}`;
+        handleReceivingScan(value);
       });
     } catch (error) {
       notice(error.message);
@@ -80,18 +81,57 @@ async function renderLines(poId) {
   const target = document.getElementById("poLines");
   if (!poId) {
     target.innerHTML = "";
+    document.getElementById("putAwayRecommendation").textContent = "Select a PO to see the put-away recommendation placeholder.";
     return;
   }
   const detail = await getPurchaseOrderDetail(poId);
+  const firstLine = detail.lines[0];
+  document.getElementById("putAwayRecommendation").innerHTML = `
+    <strong>Put-away recommendation placeholder</strong><br>
+    Product: ${firstLine?.product?.product_name || firstLine?.product_id || "Select a line"}<br>
+    Future rule: recommend a location from category, velocity, current capacity, FIFO, and temperature/zone rules.<br>
+    For now: confirm the final location manually with the Location Scan field.
+  `;
   target.innerHTML = `
     <label>Expected Products</label>
     ${table([
-      { label: "Use", render: (line) => `<input type="radio" name="po_line_id" value="${line.po_line_id}" required>` },
+      { label: "Use", render: (line) => `<input type="radio" name="po_line_id" value="${line.po_line_id}" data-product-id="${line.product_id}" required>` },
       { label: "Product", render: (line) => line.product?.product_name || line.product_id },
+      { label: "Supplier Lot", key: "supplier_expected_lot_number" },
       { label: "Ordered", key: "qty_ordered" },
       { label: "Received", key: "qty_received_total" },
       { label: "Remaining", key: "qty_remaining" },
       { label: "Unit", key: "unit_type" }
     ], detail.lines)}
   `;
+}
+
+function handleReceivingScan(value) {
+  const parsed = parsePurchaseOrderQr(value);
+  if (parsed) {
+    document.querySelector("[name='qty_received']").value = parsed.qty || 1;
+    document.querySelector("[name='supplier_lot_number']").value = parsed.supplierLot || "";
+    const matchingRadio = Array.from(document.querySelectorAll("[name='po_line_id']"))
+      .find((radio) => radio.dataset.productId === parsed.productId);
+    if (matchingRadio) matchingRadio.checked = true;
+    document.getElementById("receiveResult").innerHTML = `
+      <strong>PO QR captured</strong><br>
+      Product: ${parsed.productId}<br>
+      Quantity: ${parsed.qty}<br>
+      Supplier lot: ${parsed.supplierLot || "PENDING"}<br>
+      Confirm quality, quantity, and final location before receiving.
+    `;
+    return;
+  }
+  document.getElementById("receiveResult").textContent = `Captured scan: ${value}`;
+}
+
+function parsePurchaseOrderQr(value) {
+  const parts = String(value || "").split("|").map((part) => part.trim());
+  if (parts.length < 2 || !parts[1].startsWith("QTY:")) return null;
+  return {
+    productId: parts[0],
+    qty: Number(parts.find((part) => part.startsWith("QTY:"))?.replace("QTY:", "") || 0),
+    supplierLot: parts.find((part) => part.startsWith("SUPLOT:"))?.replace("SUPLOT:", "") || ""
+  };
 }
