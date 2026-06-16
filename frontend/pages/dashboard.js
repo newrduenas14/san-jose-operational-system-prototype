@@ -1,10 +1,10 @@
-import { getDashboard, resetToSpreadsheetSeed } from "../js/api.js?v=phonefix2";
+import { getDashboard, resetToSpreadsheetSeed } from "../js/api.js?v=opsupdate1";
 import { can } from "../js/permissions.js";
 import { notice } from "../js/utils.js";
 
 export async function render(ctx) {
   const metrics = await getDashboard();
-  ctx.setTitle("Dashboard", "Counts from the spreadsheet seed plus your local additions");
+  ctx.setTitle("Dashboard", "Counts from the connected Google Sheet");
   ctx.view.innerHTML = `
     <div class="grid">
       <div class="cards">
@@ -17,9 +17,9 @@ export async function render(ctx) {
         <div class="panel-header">
           <div>
             <h2>Prototype Database</h2>
-            <p class="muted">The app starts from the Excel workbook data, then stores changes in this browser.</p>
+            <p class="muted">The live prototype reads and writes through the Apps Script connection.</p>
           </div>
-          ${can(ctx.user, "admin:view") ? `<button id="resetData" class="btn secondary" type="button">Reset to spreadsheet seed</button>` : ""}
+          ${can(ctx.user, "admin:view") ? `<button id="resetData" class="btn secondary" type="button">Reset local seed</button>` : ""}
         </div>
         <div class="cards">
           <div class="card"><span>Inventory Movements</span><strong>${metrics.movementCount}</strong></div>
