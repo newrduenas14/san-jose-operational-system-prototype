@@ -24,13 +24,26 @@ export async function render(ctx) {
   document.getElementById("poForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
-      const po = await createPurchaseOrder(ctx.user, formToObject(event.currentTarget));
+      const input = formToObject(event.currentTarget);
+      input.supplier_expected_lot_number ||= supplierLotNumber(input.supplier_id, input.product_id);
+      const po = await createPurchaseOrder(ctx.user, input);
       notice(`Purchase order saved: ${po.po_id}.`);
       await render(ctx);
     } catch (error) {
       notice(error.message);
     }
   });
+
+  const poFormElement = document.getElementById("poForm");
+  if (poFormElement) {
+    const updateSupplierLot = () => {
+      const input = formToObject(poFormElement);
+      poFormElement.elements.supplier_expected_lot_number.value = supplierLotNumber(input.supplier_id, input.product_id);
+    };
+    poFormElement.elements.supplier_id.addEventListener("change", updateSupplierLot);
+    poFormElement.elements.product_id.addEventListener("change", updateSupplierLot);
+    updateSupplierLot();
+  }
 
   document.querySelectorAll("[data-po-action]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -57,7 +70,7 @@ function poForm(products, suppliers) {
         <div class="field"><label>Supplier</label><select name="supplier_id" required>${suppliers.map((s) => `<option value="${s.supplier_id}">${s.supplier_name}</option>`).join("")}</select></div>
         <div class="field"><label>Product</label><select name="product_id" required>${products.map((p) => `<option value="${p.product_id}">${p.product_name}</option>`).join("")}</select></div>
         <div class="field"><label>Quantity</label><input name="qty_ordered" type="number" min="1" value="1"></div>
-        <div class="field"><label>Supplier Lot Number</label><input name="supplier_expected_lot_number" placeholder="Supplier lot if known"></div>
+        <div class="field"><label>Supplier Lot Number</label><input name="supplier_expected_lot_number" readonly></div>
         <div class="field"><label>Unit Cost</label><input name="unit_cost" type="number" min="0" step="0.01" value="0"></div>
         <div class="field"><label>Unit Type</label><input name="unit_type" value="BOX"></div>
         <div class="field"><label>Expected Delivery</label><input name="expected_delivery_date" type="date"></div>
@@ -150,6 +163,13 @@ function addQrValues(template) {
 
 function purchaseOrderQrValue(productId, qty, supplierLotNumber = "") {
   return [productId, `QTY:${Number(qty || 0)}`, `SUPLOT:${supplierLotNumber || "PENDING"}`].join("|");
+}
+
+function supplierLotNumber(supplierId, productId) {
+  const supplier = String(supplierId || "SUP").replace(/[^A-Z0-9]/gi, "").slice(-4).toUpperCase();
+  const product = String(productId || "PROD").replace(/[^A-Z0-9]/gi, "").slice(-4).toUpperCase();
+  const date = new Date().toISOString().slice(2, 10).replaceAll("-", "");
+  return `${supplier}-${product}-${date}`;
 }
 
 function qrImageUrl(value) {
