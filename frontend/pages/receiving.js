@@ -1,5 +1,5 @@
 import { getPurchaseOrderDetail, listPurchaseOrders, receiveProduct } from "../js/api-smooth1.js";
-import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=opsupdate1";
+import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=smooth1";
 import { formToObject, notice, table } from "../js/utils.js";
 
 export async function render(ctx) {
@@ -27,8 +27,11 @@ export async function render(ctx) {
           <div class="field"><label>PO/Product QR Scan</label><input id="receiveScan" name="scan_code" placeholder="Scan PO QR, product, or lot"></div>
           <div class="field"><label>Supplier Lot Number</label><input name="supplier_lot_number" placeholder="Not unique"></div>
           <div class="field"><label>Internal Lot ID</label><input name="internal_lot_id" placeholder="Auto if blank"></div>
-          <div class="field"><label>Quantity Received</label><input name="qty_received" type="number" min="1" value="1" required></div>
+          <div class="field"><label>Purchase Qty Received</label><input name="qty_received" type="number" min="1" value="1" required></div>
           <div class="field"><label>Damaged Qty</label><input name="qty_damaged" type="number" min="0" value="0"></div>
+          <div class="field"><label>Pallets Received</label><input name="pallet_count" type="number" min="0" value="1"></div>
+          <div class="field"><label>Actual Base Qty</label><input name="actual_base_qty" type="number" min="0" step="0.01" placeholder="Auto from product"></div>
+          <div id="baseQtyPreview" class="field full result">Select a PO line to preview base inventory quantity.</div>
           <div class="field"><label>Quality Score</label><input name="quality_score" type="number" min="1" max="5" value="5"></div>
           <div class="field"><label>Location Scan</label><input id="locationScan" name="confirmed_location_id" placeholder="Scan location QR"></div>
           <div class="field full"><label>Notes</label><textarea name="notes"></textarea></div>
@@ -45,6 +48,8 @@ export async function render(ctx) {
 
   const poSelect = document.getElementById("poSelect");
   poSelect.addEventListener("change", async () => renderLines(poSelect.value));
+  document.getElementById("receiveForm").addEventListener("input", updateBaseQtyPreview);
+  document.getElementById("receiveForm").addEventListener("change", updateBaseQtyPreview);
   const scanInput = document.getElementById("receiveScan");
   handleKeyboardScan(scanInput, (value) => {
     handleReceivingScan(value);
@@ -68,7 +73,7 @@ export async function render(ctx) {
     event.preventDefault();
     try {
       const result = await receiveProduct(ctx.user, formToObject(event.currentTarget));
-      notice(`Received into ${result.lot.internal_lot_id} at ${result.lot.current_location_id}.`);
+      notice(`Received ${result.lot.original_qty} ${result.lot.unit_type} into ${result.lot.internal_lot_id} at ${result.lot.current_location_id}.`);
       await render(ctx);
     } catch (error) {
       notice(error.message);
@@ -94,15 +99,20 @@ async function renderLines(poId) {
   target.innerHTML = `
     <label>Expected Products</label>
     ${table([
-      { label: "Use", render: (line) => `<input type="radio" name="po_line_id" value="${line.po_line_id}" data-product-id="${line.product_id}" required>` },
+      { label: "Use", render: (line) => `<input type="radio" name="po_line_id" value="${line.po_line_id}" data-product-id="${line.product_id}" data-unit="${line.unit_type || ""}" data-base-unit="${line.base_unit || line.product?.base_unit || line.unit_type || ""}" data-units-per="${line.units_per_purchase_unit || line.product?.units_per_purchase_unit || line.product?.case_weight_lbs || 1}" required>` },
       { label: "Product", render: (line) => line.product?.product_name || line.product_id },
       { label: "Supplier Lot", key: "supplier_expected_lot_number" },
       { label: "Ordered", key: "qty_ordered" },
       { label: "Received", key: "qty_received_total" },
       { label: "Remaining", key: "qty_remaining" },
-      { label: "Unit", key: "unit_type" }
+      { label: "Purchase Unit", key: "unit_type" },
+      { label: "Expected Base", render: (line) => `${line.expected_base_qty || ""} ${line.base_unit || line.product?.base_unit || ""}` }
     ], detail.lines)}
   `;
+  target.querySelectorAll("[name='po_line_id']").forEach((radio) => {
+    radio.addEventListener("change", updateBaseQtyPreview);
+  });
+  updateBaseQtyPreview();
 }
 
 function handleReceivingScan(value) {
@@ -113,6 +123,7 @@ function handleReceivingScan(value) {
     const matchingRadio = Array.from(document.querySelectorAll("[name='po_line_id']"))
       .find((radio) => radio.dataset.productId === parsed.productId);
     if (matchingRadio) matchingRadio.checked = true;
+    updateBaseQtyPreview();
     document.getElementById("receiveResult").innerHTML = `
       <strong>PO QR captured</strong><br>
       Product: ${parsed.productId}<br>
@@ -123,6 +134,30 @@ function handleReceivingScan(value) {
     return;
   }
   document.getElementById("receiveResult").textContent = `Captured scan: ${value}`;
+}
+
+function updateBaseQtyPreview() {
+  const preview = document.getElementById("baseQtyPreview");
+  const form = document.getElementById("receiveForm");
+  if (!preview || !form) return;
+  const selectedLine = document.querySelector("[name='po_line_id']:checked");
+  if (!selectedLine) {
+    preview.textContent = "Select a PO line to preview base inventory quantity.";
+    return;
+  }
+  const qtyReceived = Number(form.elements.qty_received.value || 0);
+  const qtyDamaged = Number(form.elements.qty_damaged.value || 0);
+  const acceptedPurchaseQty = Math.max(0, qtyReceived - qtyDamaged);
+  const unitsPerPurchaseUnit = Number(selectedLine.dataset.unitsPer || 1) || 1;
+  const baseUnit = selectedLine.dataset.baseUnit || selectedLine.dataset.unit || "";
+  const autoBaseQty = acceptedPurchaseQty * unitsPerPurchaseUnit;
+  const actualBaseQty = Number(form.elements.actual_base_qty.value || 0);
+  const finalBaseQty = actualBaseQty > 0 ? actualBaseQty : autoBaseQty;
+  preview.innerHTML = `
+    Accepted purchase qty: <strong>${acceptedPurchaseQty} ${selectedLine.dataset.unit || ""}</strong><br>
+    Inventory qty to lot: <strong>${finalBaseQty} ${baseUnit}</strong>
+    ${actualBaseQty > 0 ? "<br>Using manually entered actual base qty." : ""}
+  `;
 }
 
 function parsePurchaseOrderQr(value) {
