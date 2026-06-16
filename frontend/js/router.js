@@ -15,8 +15,12 @@ export function currentRoute() {
 }
 
 export function navigate(page) {
+  const nextHash = `#${page}`;
+  if (window.location.hash === nextHash) {
+    renderRoute();
+    return;
+  }
   window.location.hash = page;
-  renderRoute();
 }
 
 export function renderNavigation(user) {
