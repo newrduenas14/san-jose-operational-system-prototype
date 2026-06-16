@@ -36,12 +36,36 @@ export async function render(ctx) {
 
   const poFormElement = document.getElementById("poForm");
   if (poFormElement) {
+    const productMap = new Map(products.flatMap((product) => [
+      [productOptionLabel(product), product],
+      [String(product.product_id || ""), product],
+      [String(product.product_name || ""), product],
+      [String(product.wholesale_sku || ""), product]
+    ]).filter(([key]) => key));
     const updateSupplierLot = () => {
       const input = formToObject(poFormElement);
       poFormElement.elements.supplier_expected_lot_number.value = supplierLotNumber(input.supplier_id, input.product_id);
     };
+    const updateProductFields = () => {
+      const lookup = document.getElementById("productLookup").value.trim();
+      const product = productMap.get(lookup);
+      const qty = Number(poFormElement.elements.qty_ordered.value || 0);
+      if (!product) {
+        poFormElement.elements.product_id.value = "";
+        return;
+      }
+      const unitsPerPurchaseUnit = Number(product.units_per_purchase_unit || product.case_weight_lbs || 1) || 1;
+      poFormElement.elements.product_id.value = product.product_id;
+      poFormElement.elements.unit_type.value = product.default_unit || "CASE";
+      poFormElement.elements.case_weight_lbs.value = product.case_weight_lbs || "";
+      poFormElement.elements.base_unit.value = product.base_unit || product.default_unit || "EACH";
+      poFormElement.elements.units_per_purchase_unit.value = unitsPerPurchaseUnit;
+      poFormElement.elements.expected_base_qty.value = qty ? qty * unitsPerPurchaseUnit : "";
+      updateSupplierLot();
+    };
     poFormElement.elements.supplier_id.addEventListener("change", updateSupplierLot);
-    poFormElement.elements.product_id.addEventListener("change", updateSupplierLot);
+    document.getElementById("productLookup").addEventListener("input", updateProductFields);
+    poFormElement.elements.qty_ordered.addEventListener("input", updateProductFields);
     updateSupplierLot();
   }
 
@@ -68,11 +92,22 @@ function poForm(products, suppliers) {
       <div class="panel-header"><h2>Create Purchase Order</h2></div>
       <form id="poForm" class="form-grid">
         <div class="field"><label>Supplier</label><select name="supplier_id" required>${suppliers.map((s) => `<option value="${s.supplier_id}">${s.supplier_name}</option>`).join("")}</select></div>
-        <div class="field"><label>Product</label><select name="product_id" required>${products.map((p) => `<option value="${p.product_id}">${p.product_name}</option>`).join("")}</select></div>
+        <div class="field">
+          <label>Product Search</label>
+          <input id="productLookup" list="productOptions" placeholder="Name, Product ID, or Wholesale Lot #" required>
+          <datalist id="productOptions">
+            ${products.map((p) => `<option value="${escapeHtml(productOptionLabel(p))}"></option>`).join("")}
+          </datalist>
+          <input name="product_id" type="hidden" required>
+        </div>
         <div class="field"><label>Quantity</label><input name="qty_ordered" type="number" min="1" value="1"></div>
         <div class="field"><label>Supplier Lot Number</label><input name="supplier_expected_lot_number" readonly></div>
         <div class="field"><label>Unit Cost</label><input name="unit_cost" type="number" min="0" step="0.01" value="0"></div>
-        <div class="field"><label>Unit Type</label><input name="unit_type" value="BOX"></div>
+        <div class="field"><label>Purchase Unit</label><input name="unit_type" readonly></div>
+        <div class="field"><label>Case Weight Lbs</label><input name="case_weight_lbs" readonly></div>
+        <div class="field"><label>Base Unit</label><input name="base_unit" readonly></div>
+        <div class="field"><label>Units Per Purchase Unit</label><input name="units_per_purchase_unit" readonly></div>
+        <div class="field"><label>Expected Base Qty</label><input name="expected_base_qty" readonly></div>
         <div class="field"><label>Expected Delivery</label><input name="expected_delivery_date" type="date"></div>
         <div class="field full"><label>Notes</label><textarea name="notes"></textarea></div>
         <div class="field full"><button class="btn" type="submit">Save PO</button></div>
@@ -137,6 +172,7 @@ function printablePurchaseOrderHtml({ po, lines }) {
                 <strong>${escapeHtml(line.product?.product_name || line.product_id)}</strong>
                 <p class="muted">Product ID: ${escapeHtml(line.product_id)}</p>
                 <p>Quantity Ordered: ${escapeHtml(line.qty_ordered)} ${escapeHtml(line.unit_type)}</p>
+                <p>Expected Base Qty: ${escapeHtml(line.expected_base_qty || "")} ${escapeHtml(line.base_unit || "")}</p>
                 <p>Supplier Lot: ${escapeHtml(line.supplier_expected_lot_number || "PENDING")}</p>
                 <p>QR Value: <strong>${escapeHtml(line.qr_value)}</strong></p>
               </div>
@@ -163,6 +199,14 @@ function addQrValues(template) {
 
 function purchaseOrderQrValue(productId, qty, supplierLotNumber = "") {
   return [productId, `QTY:${Number(qty || 0)}`, `SUPLOT:${supplierLotNumber || "PENDING"}`].join("|");
+}
+
+function productOptionLabel(product) {
+  const unit = product.default_unit || "UNIT";
+  const base = product.base_unit || unit;
+  const multiplier = product.units_per_purchase_unit || product.case_weight_lbs || 1;
+  const lot = product.wholesale_sku ? ` | Lot ${product.wholesale_sku}` : "";
+  return `${product.product_name} | ${product.product_id} | ${unit} x ${multiplier} ${base}${lot}`;
 }
 
 function supplierLotNumber(supplierId, productId) {
