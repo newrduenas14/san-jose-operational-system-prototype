@@ -1,16 +1,16 @@
 import { getSession, roleOptions, setRole } from "./auth.js";
 import { renderNavigation, renderRoute, configureRouter, currentRoute } from "./router.js";
 import { allowedPages } from "./permissions.js";
-import * as dashboard from "../pages/dashboard.js?v=phonefix2";
-import * as products from "../pages/products.js?v=phonefix2";
-import * as suppliers from "../pages/suppliers.js?v=phonefix2";
-import * as purchaseOrders from "../pages/purchaseOrders.js?v=phonefix2";
-import * as receiving from "../pages/receiving.js?v=phonefix2";
-import * as inventory from "../pages/inventory.js?v=phonefix2";
-import * as scanner from "../pages/scannerTest.js?v=scanfix3";
-import * as amazon from "../pages/amazon.js?v=phonefix2";
-import * as reports from "../pages/reports.js?v=phonefix2";
-import * as admin from "../pages/admin.js?v=phonefix2";
+import * as dashboard from "../pages/dashboard.js?v=opsupdate1";
+import * as products from "../pages/products.js?v=opsupdate1";
+import * as suppliers from "../pages/suppliers.js?v=opsupdate1";
+import * as purchaseOrders from "../pages/purchaseOrders.js?v=opsupdate1";
+import * as receiving from "../pages/receiving.js?v=opsupdate1";
+import * as inventory from "../pages/inventory.js?v=opsupdate1";
+import * as scanner from "../pages/scannerTest.js?v=opsupdate1";
+import * as amazon from "../pages/amazon.js?v=opsupdate1";
+import * as reports from "../pages/reports.js?v=opsupdate1";
+import * as admin from "../pages/admin.js?v=opsupdate1";
 
 const view = document.getElementById("view");
 const title = document.getElementById("pageTitle");
