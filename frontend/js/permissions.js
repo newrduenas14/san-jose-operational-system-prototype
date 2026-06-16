@@ -23,7 +23,7 @@ const permissions = {
     "suppliers:view", "suppliers:create", "suppliers:edit",
     "purchaseOrders:view", "purchaseOrders:create", "purchaseOrders:actions",
     "receiving:view", "receiving:create",
-    "inventory:view",
+    "inventory:view", "inventory:adjust",
     "scanner:test",
     "amazon:view",
     "reports:view"
@@ -31,7 +31,7 @@ const permissions = {
   OPERATOR: [
     "dashboard:view",
     "receiving:view", "receiving:create",
-    "inventory:view",
+    "inventory:view", "inventory:adjust",
     "scanner:test",
     "amazon:view"
   ]
