@@ -1,5 +1,5 @@
-import { inventorySnapshot, lookupScan } from "../js/api.js?v=phonefix1";
-import { handleKeyboardScan } from "../js/scanner.js";
+import { inventorySnapshot, lookupScan } from "../js/api.js?v=opsupdate1";
+import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=opsupdate1";
 import { escapeHtml, table } from "../js/utils.js";
 
 export async function render(ctx) {
@@ -8,11 +8,17 @@ export async function render(ctx) {
   ctx.view.innerHTML = `
     <div class="grid">
       <section class="panel">
-        <div class="panel-header"><h2>Lookup by Scan</h2></div>
+        <div class="panel-header">
+          <h2>Lookup by Scan</h2>
+          <div class="actions">
+            <button id="scanInventoryQr" class="btn secondary" type="button">Scan</button>
+          </div>
+        </div>
         <div class="scan-box">
           <div class="field"><label>Scan product, lot, location, or package</label><input id="inventoryScan" placeholder="Scan and press Enter"></div>
           <div id="inventoryResult" class="result">Waiting for scan.</div>
         </div>
+        <div id="cameraReader"></div>
       </section>
       <section class="panel">
         <div class="panel-header"><h2>Current Inventory Snapshot</h2></div>
@@ -29,10 +35,22 @@ export async function render(ctx) {
     </div>
   `;
 
-  handleKeyboardScan(document.getElementById("inventoryScan"), async (value) => {
+  const handleInventoryScan = async (value) => {
     const match = await lookupScan(value);
     document.getElementById("inventoryResult").innerHTML = match
       ? `<strong>${match.type}</strong><pre>${escapeHtml(JSON.stringify(match.record, null, 2))}</pre>`
       : `No inventory match for <strong>${escapeHtml(value)}</strong>.`;
+  };
+
+  handleKeyboardScan(document.getElementById("inventoryScan"), handleInventoryScan);
+  document.getElementById("scanInventoryQr").addEventListener("click", async () => {
+    try {
+      await startCameraScanner("inventoryScan", (value) => {
+        handleInventoryScan(value);
+        stopCameraScanner();
+      });
+    } catch (error) {
+      document.getElementById("inventoryResult").textContent = error.message;
+    }
   });
 }
