@@ -1,13 +1,13 @@
-import { warmOperationalCache } from "./api-smooth1.js";
+import { warmOperationalCache } from "./api-smooth1.js?v=lotbase1";
 import { getSession, roleOptions, setRole } from "./auth.js";
 import { renderNavigation, renderRoute, configureRouter } from "./router.js?v=smooth1";
 import { allowedPages } from "./permissions.js";
 import * as dashboard from "../pages/dashboard.js?v=smooth1";
-import * as products from "../pages/products.js?v=smooth1";
+import * as products from "../pages/products.js?v=lotbase1";
 import * as suppliers from "../pages/suppliers.js?v=smooth1";
-import * as purchaseOrders from "../pages/purchaseOrders.js?v=smooth1";
-import * as receiving from "../pages/receiving.js?v=smooth1";
-import * as inventory from "../pages/inventory.js?v=smooth1";
+import * as purchaseOrders from "../pages/purchaseOrders.js?v=lotbase1";
+import * as receiving from "../pages/receiving.js?v=lotbase1";
+import * as inventory from "../pages/inventory.js?v=lotbase1";
 import * as scanner from "../pages/scannerTest.js?v=smooth1";
 import * as amazon from "../pages/amazon.js?v=smooth1";
 import * as reports from "../pages/reports.js?v=smooth1";
