@@ -183,6 +183,23 @@ button {
   margin-top: 6px;
 }
 
+.report-block {
+  text-align: left;
+  color: var(--ink);
+}
+
+.report-block small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.35;
+  margin-top: 8px;
+}
+
+.report-block.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(29, 111, 66, 0.14), var(--shadow);
+}
+
 .panel {
   padding: 16px;
 }
@@ -378,27 +395,40 @@ tr:last-child td {
   }
 
   .icon-button {
-    display: grid;
-    place-items: center;
-    flex: 0 0 auto;
+    display: inline-grid;
   }
 
   .shell {
     padding: 14px;
+    padding-bottom: 28px;
   }
 
   .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
     align-items: flex-start;
+    background: rgba(244, 247, 244, 0.96);
+    padding: 8px 0 12px;
+    backdrop-filter: blur(8px);
   }
 
   .topbar h1 {
     font-size: 22px;
   }
 
+  .topbar p {
+    font-size: 13px;
+  }
+
   .user-panel {
-    flex-direction: column;
-    align-items: stretch;
-    min-width: 104px;
+    align-self: stretch;
+  }
+
+  .nav button,
+  .btn,
+  .icon-button {
+    min-height: 50px;
   }
 
   .cards,
@@ -406,8 +436,46 @@ tr:last-child td {
     grid-template-columns: 1fr;
   }
 
+  .panel,
+  .card {
+    box-shadow: none;
+  }
+
   .panel-header {
-    align-items: flex-start;
+    align-items: stretch;
     flex-direction: column;
+  }
+
+  .actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  table {
+    min-width: 640px;
+  }
+}
+
+@media (max-width: 520px) {
+  .topbar {
+    display: grid;
+    grid-template-columns: auto 1fr;
+  }
+
+  .user-panel {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+
+  .cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .card strong {
+    font-size: 24px;
+  }
+
+  .panel {
+    padding: 14px;
   }
 }
