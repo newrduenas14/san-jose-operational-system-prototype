@@ -1,6 +1,6 @@
-import { inventorySnapshot, lookupScan } from "../js/api-smooth1.js";
-import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=opsupdate1";
-import { escapeHtml, table } from "../js/utils.js";
+import { inventorySnapshot, lookupScan, recordInventoryMovement } from "../js/api-smooth1.js";
+import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=smooth1";
+import { escapeHtml, formToObject, notice, table } from "../js/utils.js";
 
 export async function render(ctx) {
   ctx.setTitle("Inventory Lookup", "Inventory is calculated from movement records");
@@ -19,6 +19,22 @@ export async function render(ctx) {
           <div id="inventoryResult" class="result">Waiting for scan.</div>
         </div>
         <div id="cameraReader"></div>
+        <form id="movementForm" class="form-grid">
+          <div class="field"><label>Internal Lot ID</label><input name="internal_lot_id" required placeholder="Scan or type lot"></div>
+          <div class="field">
+            <label>Movement Type</label>
+            <select name="movement_type">
+              <option>SALE</option>
+              <option>USE</option>
+              <option>ADJUST_OUT</option>
+              <option>ADJUST_IN</option>
+            </select>
+          </div>
+          <div class="field"><label>Quantity</label><input name="qty" type="number" min="0.01" step="0.01" required></div>
+          <div class="field"><label>Unit</label><input name="unit_type" placeholder="Auto from lot"></div>
+          <div class="field full"><label>Notes</label><textarea name="notes" placeholder="Example: sold 40 LB from supplier lot"></textarea></div>
+          <div class="field full"><button class="btn" type="submit">Record Movement</button></div>
+        </form>
       </section>
       <section class="panel">
         <div class="panel-header"><h2>Current Inventory Snapshot</h2></div>
@@ -29,7 +45,7 @@ export async function render(ctx) {
           { label: "Supplier Lot", render: (row) => escapeHtml(row.lot?.supplier_lot_number || "") },
           { label: "Location", key: "location_id" },
           { label: "Qty", key: "qty" },
-          { label: "Unit", key: "unit_type" }
+          { label: "Base Unit", key: "unit_type" }
         ], rows)}
       </section>
     </div>
@@ -37,6 +53,7 @@ export async function render(ctx) {
 
   const handleInventoryScan = async (value) => {
     const match = await lookupScan(value);
+    if (match?.type === "LOT") fillMovementForm(match.record);
     document.getElementById("inventoryResult").innerHTML = match
       ? `<strong>${match.type}</strong><pre>${escapeHtml(JSON.stringify(match.record, null, 2))}</pre>`
       : `No inventory match for <strong>${escapeHtml(value)}</strong>.`;
@@ -53,4 +70,22 @@ export async function render(ctx) {
       document.getElementById("inventoryResult").textContent = error.message;
     }
   });
+
+  document.getElementById("movementForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const result = await recordInventoryMovement(ctx.user, formToObject(event.currentTarget));
+      notice(`Movement saved: ${result.movement_id}.`);
+      await render(ctx);
+    } catch (error) {
+      notice(error.message);
+    }
+  });
+}
+
+function fillMovementForm(lot) {
+  const form = document.getElementById("movementForm");
+  if (!form) return;
+  form.elements.internal_lot_id.value = lot.internal_lot_id || "";
+  form.elements.unit_type.value = lot.unit_type || "";
 }
