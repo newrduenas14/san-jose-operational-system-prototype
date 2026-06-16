@@ -1,6 +1,6 @@
-import { createPurchaseOrder, listProducts, listPurchaseOrders, listSuppliers, purchaseOrderAction } from "../js/api.js?v=phonefix1";
+import { createPurchaseOrder, generatePurchaseOrderTemplate, listProducts, listPurchaseOrders, listSuppliers, purchaseOrderAction } from "../js/api.js?v=opsupdate1";
 import { can } from "../js/permissions.js";
-import { formToObject, notice, status, table } from "../js/utils.js";
+import { escapeHtml, formToObject, notice, status, table } from "../js/utils.js";
 
 export async function render(ctx) {
   ctx.setTitle("Purchase Orders", "Create and test PO document placeholders");
@@ -39,6 +39,9 @@ export async function render(ctx) {
         await purchaseOrderAction(ctx.user, poId, poAction);
         notice(`${poId} marked as sent.`);
         await render(ctx);
+      } else if (poAction === "printTemplate") {
+        const template = await generatePurchaseOrderTemplate(poId);
+        openPrintablePurchaseOrder(template);
       } else {
         notice(`${button.textContent} is a placeholder for ${poId}.`);
       }
@@ -54,6 +57,7 @@ function poForm(products, suppliers) {
         <div class="field"><label>Supplier</label><select name="supplier_id" required>${suppliers.map((s) => `<option value="${s.supplier_id}">${s.supplier_name}</option>`).join("")}</select></div>
         <div class="field"><label>Product</label><select name="product_id" required>${products.map((p) => `<option value="${p.product_id}">${p.product_name}</option>`).join("")}</select></div>
         <div class="field"><label>Quantity</label><input name="qty_ordered" type="number" min="1" value="1"></div>
+        <div class="field"><label>Supplier Lot Number</label><input name="supplier_expected_lot_number" placeholder="Supplier lot if known"></div>
         <div class="field"><label>Unit Cost</label><input name="unit_cost" type="number" min="0" step="0.01" value="0"></div>
         <div class="field"><label>Unit Type</label><input name="unit_type" value="BOX"></div>
         <div class="field"><label>Expected Delivery</label><input name="expected_delivery_date" type="date"></div>
@@ -69,9 +73,76 @@ function actionButtons(ctx, row) {
   return `
     <div class="actions">
       <button class="btn secondary" data-po-action="generate" data-po-id="${row.po_id}" type="button">Generate PO</button>
-      <button class="btn secondary" data-po-action="print" data-po-id="${row.po_id}" type="button">Print</button>
+      <button class="btn secondary" data-po-action="printTemplate" data-po-id="${row.po_id}" type="button">Print Template</button>
       <button class="btn secondary" data-po-action="send" data-po-id="${row.po_id}" type="button">Send</button>
       <button class="btn" data-po-action="markSent" data-po-id="${row.po_id}" type="button">Mark Sent</button>
     </div>
   `;
+}
+
+function openPrintablePurchaseOrder(template) {
+  const win = window.open("", "_blank");
+  if (!win) {
+    notice("Pop-up blocked. Allow pop-ups to print purchase orders.");
+    return;
+  }
+  win.document.write(printablePurchaseOrderHtml(template));
+  win.document.close();
+  win.focus();
+}
+
+function printablePurchaseOrderHtml({ po, lines }) {
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <title>${escapeHtml(po.po_id)} Purchase Order</title>
+        <style>
+          body { font-family: Arial, sans-serif; color: #17211b; margin: 24px; }
+          h1, h2 { margin: 0 0 10px; }
+          .meta, .line { border: 1px solid #d8e1da; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+          .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
+          .qr { width: 180px; height: 180px; }
+          .muted { color: #607064; }
+          @media print { button { display: none; } body { margin: 12mm; } }
+        </style>
+      </head>
+      <body>
+        <button onclick="window.print()">Print Purchase Order</button>
+        <h1>Purchase Order ${escapeHtml(po.po_id)}</h1>
+        <section class="meta grid">
+          <div><strong>Supplier</strong><br>${escapeHtml(po.supplier?.supplier_name || po.supplier_id)}</div>
+          <div><strong>Status</strong><br>${escapeHtml(po.po_status)}</div>
+          <div><strong>Order Date</strong><br>${escapeHtml(formatDate(po.order_date))}</div>
+          <div><strong>Expected Delivery</strong><br>${escapeHtml(formatDate(po.expected_delivery_date) || "Not set")}</div>
+        </section>
+        <h2>Receiving QR Codes</h2>
+        ${lines.map((line) => `
+          <section class="line">
+            <div class="grid">
+              <div>
+                <strong>${escapeHtml(line.product?.product_name || line.product_id)}</strong>
+                <p class="muted">Product ID: ${escapeHtml(line.product_id)}</p>
+                <p>Quantity Ordered: ${escapeHtml(line.qty_ordered)} ${escapeHtml(line.unit_type)}</p>
+                <p>Supplier Lot: ${escapeHtml(line.supplier_expected_lot_number || "PENDING")}</p>
+                <p>QR Value: <strong>${escapeHtml(line.qr_value)}</strong></p>
+              </div>
+              <div>
+                <img class="qr" alt="Receiving QR" src="${qrImageUrl(line.qr_value)}">
+              </div>
+            </div>
+          </section>
+        `).join("")}
+      </body>
+    </html>
+  `;
+}
+
+function qrImageUrl(value) {
+  return `https://quickchart.io/qr?size=220&margin=2&text=${encodeURIComponent(value)}`;
+}
+
+function formatDate(value) {
+  if (!value) return "";
+  return String(value).slice(0, 10);
 }
