@@ -1,0 +1,92 @@
+import * as base from "./api.js?v=opsupdate1";
+
+const READ_CACHE_TTL_MS = 45000;
+const readCache = new Map();
+const pendingReads = new Map();
+
+export const purchaseOrderQrValue = base.purchaseOrderQrValue;
+export const resetToSpreadsheetSeed = base.resetToSpreadsheetSeed;
+
+export function warmOperationalCache() {
+  [
+    () => getDashboard(),
+    () => listProducts(),
+    () => listSuppliers(),
+    () => listPurchaseOrders(),
+    () => inventorySnapshot()
+  ].forEach((load, index) => {
+    window.setTimeout(() => load().catch(() => {}), index * 350);
+  });
+}
+
+export function clearApiCache() {
+  readCache.clear();
+  pendingReads.clear();
+}
+
+export const getDashboard = () => cachedRead("getDashboard", [], base.getDashboard);
+export const listProducts = () => cachedRead("listProducts", [], base.listProducts);
+export const listSuppliers = () => cachedRead("listSuppliers", [], base.listSuppliers);
+export const listLocations = () => cachedRead("listLocations", [], base.listLocations);
+export const listPurchaseOrders = () => cachedRead("listPurchaseOrders", [], base.listPurchaseOrders);
+export const inventorySnapshot = () => cachedRead("inventorySnapshot", [], base.inventorySnapshot);
+export const getOperationalReports = () => cachedRead("getOperationalReports", [], base.getOperationalReports);
+export const getPurchaseOrderDetail = (poId) => cachedRead("getPurchaseOrderDetail", [poId], () => base.getPurchaseOrderDetail(poId));
+
+export async function createProduct(user, input) {
+  return mutate(() => base.createProduct(user, input));
+}
+
+export async function createSupplier(user, input) {
+  return mutate(() => base.createSupplier(user, input));
+}
+
+export async function createPurchaseOrder(user, input) {
+  return mutate(() => base.createPurchaseOrder(user, input));
+}
+
+export async function purchaseOrderAction(user, poId, action) {
+  return mutate(() => base.purchaseOrderAction(user, poId, action));
+}
+
+export async function receiveProduct(user, input) {
+  return mutate(() => base.receiveProduct(user, input));
+}
+
+export async function lookupScan(scanValue) {
+  return base.lookupScan(scanValue);
+}
+
+export async function matchAmazonPackageScan(scanValue) {
+  return mutate(() => base.matchAmazonPackageScan(scanValue));
+}
+
+async function cachedRead(name, args, load) {
+  const key = `${name}:${JSON.stringify(args)}`;
+  const cached = readCache.get(key);
+  if (cached && Date.now() - cached.savedAt < READ_CACHE_TTL_MS) {
+    return cached.value;
+  }
+  if (pendingReads.has(key)) {
+    return pendingReads.get(key);
+  }
+
+  const request = load()
+    .then((value) => {
+      readCache.set(key, { savedAt: Date.now(), value });
+      pendingReads.delete(key);
+      return value;
+    })
+    .catch((error) => {
+      pendingReads.delete(key);
+      throw error;
+    });
+  pendingReads.set(key, request);
+  return request;
+}
+
+async function mutate(load) {
+  const result = await load();
+  clearApiCache();
+  return result;
+}
