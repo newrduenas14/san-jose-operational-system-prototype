@@ -14,7 +14,9 @@ export async function render(ctx) {
           { label: "Product ID", key: "product_id" },
           { label: "Name", key: "product_name" },
           { label: "Category", key: "product_category" },
-          { label: "Unit", key: "default_unit" },
+          { label: "Purchase Unit", key: "default_unit" },
+          { label: "Base Unit", render: (row) => row.base_unit || row.default_unit },
+          { label: "Units / Purchase Unit", render: (row) => row.units_per_purchase_unit || 1 },
           { label: "QR / Barcode", key: "barcode_or_qr_value" },
           { label: "Status", render: (row) => status(row.is_active ? "ACTIVE" : "INACTIVE") }
         ], products)}
@@ -54,12 +56,44 @@ function productForm() {
             <option>Other</option>
           </select>
         </div>
-        <div class="field"><label>Default Unit</label><input name="default_unit" value="BOX"></div>
+        <div class="field">
+          <label>Purchase Unit</label>
+          <select name="default_unit">
+            <option>CASE</option>
+            <option>BOX</option>
+            <option>BAG</option>
+            <option>LB</option>
+            <option>EACH</option>
+            <option>ROLL</option>
+            <option>BUNDLE</option>
+            <option>PALLET</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Base Inventory Unit</label>
+          <select name="base_unit">
+            <option>LB</option>
+            <option>EACH</option>
+            <option>CASE</option>
+            <option>BOX</option>
+            <option>BAG</option>
+            <option>ROLL</option>
+            <option>BUNDLE</option>
+          </select>
+        </div>
+        <div class="field"><label>Units Per Purchase Unit</label><input name="units_per_purchase_unit" type="number" min="0.01" step="0.01" value="1"></div>
+        <div class="field">
+          <label>Breakable?</label>
+          <select name="can_break_case">
+            <option value="TRUE">Yes</option>
+            <option value="FALSE">No</option>
+          </select>
+        </div>
         <div class="field"><label>Velocity Class</label><select name="velocity_class"><option value="">Auto/Unknown</option><option>FAST</option><option>MEDIUM</option><option>SLOW</option></select></div>
         <div class="field"><label>Amazon SKU</label><input name="amazon_sku"></div>
         <div class="field"><label>Wholesale Lot #</label><input name="wholesale_sku"></div>
         <div class="field"><label>Case Weight Lbs</label><input name="case_weight_lbs" type="number" min="0" step="0.01"></div>
-        <div class="field full"><p class="muted">QR/barcode value, min stock, and target stock are calculated automatically.</p></div>
+        <div class="field full"><p class="muted">Example: Tamarindo bought as CASE, base unit LB, units per purchase unit 25. Receiving 30 CASE creates 750 LB in inventory.</p></div>
         <div class="field full"><label>Notes</label><textarea name="notes"></textarea></div>
         <div class="field full"><button class="btn" type="submit">Save Product</button></div>
       </form>
