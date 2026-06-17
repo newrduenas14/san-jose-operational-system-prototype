@@ -1,24 +1,23 @@
-import { createProduct, listProducts } from "../js/api-smooth1.js";
+import { createProduct, inventorySnapshot, listProducts, updateProductStatus } from "../js/api-smooth1.js";
 import { can } from "../js/permissions.js";
-import { escapeHtml, formToObject, notice, status, table } from "../js/utils.js";
+import { escapeHtml, formToObject, notice, table } from "../js/utils.js";
 
 export async function render(ctx) {
-  ctx.setTitle("Products", "Add products and let the system create scan values");
-  const products = await listProducts();
+  ctx.setTitle("Products", "Create product records for purchasing and inventory learning");
+  const [products, inventoryRows] = await Promise.all([listProducts(), inventorySnapshot()]);
+  const inventoryByProduct = inventoryTotalsByProduct(inventoryRows);
   ctx.view.innerHTML = `
     <div class="grid">
-      ${can(ctx.user, "products:create") ? productForm() : ""}
+      ${can(ctx.user, "products:create") ? productForm(products) : ""}
       <section class="panel">
         <div class="panel-header"><h2>Product Catalog</h2></div>
         ${table([
           { label: "Product ID", key: "product_id" },
           { label: "Name", key: "product_name" },
-          { label: "Category", key: "product_category" },
           { label: "Purchase Unit", key: "default_unit" },
-          { label: "Base Unit", render: (row) => row.base_unit || row.default_unit },
-          { label: "Units / Purchase Unit", render: (row) => row.units_per_purchase_unit || 1 },
-          { label: "QR / Barcode", key: "barcode_or_qr_value" },
-          { label: "Status", render: (row) => status(row.is_active ? "ACTIVE" : "INACTIVE") }
+          { label: "Lbs / Purchase Unit", render: (row) => formatNumber(row.case_weight_lbs || row.units_per_purchase_unit || 0) },
+          { label: "Inventory", render: (row) => inventoryText(inventoryByProduct[row.product_id]) },
+          { label: "Status", render: (row) => productStatus(row, ctx.user) }
         ], products)}
       </section>
     </div>
@@ -28,21 +27,41 @@ export async function render(ctx) {
     event.preventDefault();
     try {
       const product = await createProduct(ctx.user, formToObject(event.currentTarget));
-      notice(`Product saved: ${product.product_id}. Use ${product.barcode_or_qr_value} to test scanning.`);
+      notice(`Product saved: ${product.product_id}.`);
       await render(ctx);
     } catch (error) {
       notice(error.message);
     }
   });
+
+  document.querySelectorAll("[data-product-status]").forEach((control) => {
+    control.addEventListener("change", async (event) => {
+      const checkbox = event.currentTarget;
+      try {
+        await updateProductStatus(ctx.user, checkbox.dataset.productStatus, checkbox.checked);
+        notice(`${checkbox.dataset.productStatus} is now ${checkbox.checked ? "active" : "off"}.`);
+        await render(ctx);
+      } catch (error) {
+        checkbox.checked = !checkbox.checked;
+        notice(error.message);
+      }
+    });
+  });
 }
 
-function productForm() {
+function productForm(products) {
+  const productNames = unique(products.map((product) => product.product_name).filter(Boolean));
   return `
     <section class="panel">
       <div class="panel-header"><h2>Add Product</h2></div>
       <form id="productForm" class="form-grid">
-        <div class="field"><label>Product ID</label><input name="product_id" placeholder="Auto if blank"></div>
-        <div class="field"><label>Product Name</label><input name="product_name" required></div>
+        <div class="field">
+          <label>Product Name</label>
+          <input name="product_name" list="productNameOptions" required>
+          <datalist id="productNameOptions">
+            ${productNames.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("")}
+          </datalist>
+        </div>
         <div class="field">
           <label>Category</label>
           <select name="product_category" required>
@@ -60,43 +79,66 @@ function productForm() {
           <label>Purchase Unit</label>
           <select name="default_unit">
             <option>CASE</option>
-            <option>BOX</option>
-            <option>BAG</option>
             <option>LB</option>
-            <option>EACH</option>
-            <option>ROLL</option>
-            <option>BUNDLE</option>
-            <option>PALLET</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Base Inventory Unit</label>
-          <select name="base_unit">
-            <option>LB</option>
-            <option>EACH</option>
-            <option>CASE</option>
             <option>BOX</option>
+            <option>EACH</option>
             <option>BAG</option>
             <option>ROLL</option>
-            <option>BUNDLE</option>
           </select>
         </div>
-        <div class="field"><label>Units Per Purchase Unit</label><input name="units_per_purchase_unit" type="number" min="0.01" step="0.01" value="1"></div>
-        <div class="field">
-          <label>Breakable?</label>
-          <select name="can_break_case">
-            <option value="TRUE">Yes</option>
-            <option value="FALSE">No</option>
-          </select>
-        </div>
-        <div class="field"><label>Velocity Class</label><select name="velocity_class"><option value="">Auto/Unknown</option><option>FAST</option><option>MEDIUM</option><option>SLOW</option></select></div>
-        <div class="field"><label>Amazon SKU</label><input name="amazon_sku"></div>
-        <div class="field"><label>Wholesale Lot #</label><input name="wholesale_sku"></div>
-        <div class="field"><label>Case Weight Lbs</label><input name="case_weight_lbs" type="number" min="0" step="0.01"></div>
-        <div class="field full"><p class="muted">Example: Tamarindo bought as CASE, base unit LB, units per purchase unit 25. Receiving 30 CASE creates 750 LB in inventory.</p></div>
-        <div class="field full"><label>Notes</label><textarea name="notes"></textarea></div>
+        <div class="field"><label>Amount Per Purchase Unit</label><input name="amount_per_purchase_unit" type="number" min="0.01" step="0.01" value="1" required></div>
+        <div class="field"><label>Weight Per Purchase Unit Lbs</label><input name="case_weight_lbs" type="number" min="0" step="0.01" required></div>
+        <div class="field"><label>Perishability Days</label><input name="perishability_days" type="number" min="0" step="1" placeholder="0 if none"></div>
         <div class="field full"><button class="btn" type="submit">Save Product</button></div>
       </form>
     </section>
   `;
+}
+
+function inventoryTotalsByProduct(rows) {
+  return rows.reduce((totals, row) => {
+    const key = row.product_id;
+    if (!key) return totals;
+    const purchaseUnit = row.product?.default_unit || "";
+    const baseUnit = row.unit_type || row.product?.base_unit || "";
+    const total = totals[key] || { purchaseUnits: 0, lbs: 0, unit: purchaseUnit || baseUnit };
+    const qty = Number(row.qty || row.current_qty || 0);
+    const lbsPerUnit = Number(row.product?.case_weight_lbs || row.product?.units_per_purchase_unit || 0);
+    if (String(baseUnit).toUpperCase() === "LB") {
+      total.lbs += qty;
+      total.purchaseUnits += lbsPerUnit > 0 ? qty / lbsPerUnit : qty;
+    } else {
+      total.purchaseUnits += qty;
+      total.lbs += lbsPerUnit > 0 ? qty * lbsPerUnit : 0;
+    }
+    totals[key] = total;
+    return totals;
+  }, {});
+}
+
+function inventoryText(total) {
+  if (!total) return "0";
+  const unit = total.unit ? ` ${escapeHtml(total.unit)}` : "";
+  const lbs = total.lbs > 0 ? ` / ${formatNumber(total.lbs)} LB` : "";
+  return `${formatNumber(total.purchaseUnits)}${unit}${lbs}`;
+}
+
+function productStatus(row, user) {
+  const checked = row.is_active === true || String(row.is_active).toUpperCase() === "TRUE";
+  if (!can(user, "products:edit")) return checked ? "ACTIVE" : "OFF";
+  return `
+    <label class="switch">
+      <input data-product-status="${escapeHtml(row.product_id)}" type="checkbox" ${checked ? "checked" : ""}>
+      <span>${checked ? "Active" : "Off"}</span>
+    </label>
+  `;
+}
+
+function unique(values) {
+  return Array.from(new Set(values));
+}
+
+function formatNumber(value) {
+  const number = Number(value || 0);
+  return Number.isInteger(number) ? String(number) : number.toFixed(2);
 }
