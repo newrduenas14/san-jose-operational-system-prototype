@@ -37,6 +37,10 @@ export async function createProduct(user, input) {
   return mutate(() => base.createProduct(user, input));
 }
 
+export async function updateProductStatus(user, productId, isActive) {
+  return mutate(() => base.updateProductStatus(user, productId, isActive));
+}
+
 export async function createSupplier(user, input) {
   return mutate(() => base.createSupplier(user, input));
 }
