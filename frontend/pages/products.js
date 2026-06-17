@@ -55,6 +55,8 @@ function productForm(products) {
     <section class="panel">
       <div class="panel-header"><h2>Add Product</h2></div>
       <form id="productForm" class="form-grid">
+        <input name="base_unit" type="hidden" value="LB">
+        <input name="can_break_case" type="hidden" value="TRUE">
         <div class="field">
           <label>Product Name</label>
           <input name="product_name" list="productNameOptions" required>
