@@ -303,6 +303,46 @@ th {
   color: #294535;
 }
 
+.table-sort-button {
+  align-items: center;
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  font-weight: 700;
+  gap: 6px;
+  padding: 2px 0;
+  text-align: left;
+}
+
+.table-sort-button:hover,
+.table-sort-button:focus-visible {
+  color: var(--primary);
+}
+
+.table-sort-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.sort-indicator::before {
+  color: var(--muted);
+  content: "\2195";
+  display: inline-block;
+  font-size: 14px;
+  line-height: 1;
+  width: 12px;
+}
+
+.table-sort-button.sort-asc .sort-indicator::before {
+  color: var(--primary);
+  content: "\2191";
+}
+
+.table-sort-button.sort-desc .sort-indicator::before {
+  color: var(--primary);
+  content: "\2193";
+}
+
 tr:last-child td {
   border-bottom: 0;
 }

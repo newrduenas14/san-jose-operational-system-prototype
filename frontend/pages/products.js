@@ -1,6 +1,6 @@
 import { createProduct, inventorySnapshot, listProducts, updateProductStatus } from "../js/api-smooth1.js";
 import { can } from "../js/permissions.js";
-import { escapeHtml, formToObject, notice, table } from "../js/utils.js";
+import { enableTableSorting, escapeHtml, formToObject, notice, table } from "../js/utils.js";
 
 export async function render(ctx) {
   ctx.setTitle("Products", "Create product records for purchasing and inventory learning");
@@ -12,16 +12,37 @@ export async function render(ctx) {
       <section class="panel">
         <div class="panel-header"><h2>Product Catalog</h2></div>
         ${table([
-          { label: "Product ID", key: "product_id" },
-          { label: "Name", key: "product_name" },
-          { label: "Purchase Unit", key: "default_unit" },
-          { label: "Lbs / Purchase Unit", render: (row) => formatNumber(row.case_weight_lbs || row.units_per_purchase_unit || 0) },
-          { label: "Inventory", render: (row) => inventoryText(inventoryByProduct[row.product_id]) },
-          { label: "Status", render: (row) => productStatus(row, ctx.user) }
+          { label: "Product ID", key: "product_id", sortable: true },
+          { label: "Name", key: "product_name", sortable: true },
+          { label: "Purchase Unit", key: "default_unit", sortable: true },
+          {
+            label: "Lbs / Purchase Unit",
+            sortable: true,
+            sortType: "number",
+            sortDirection: "desc",
+            sortValue: (row) => Number(row.case_weight_lbs || row.units_per_purchase_unit || 0),
+            render: (row) => formatNumber(row.case_weight_lbs || row.units_per_purchase_unit || 0)
+          },
+          {
+            label: "Inventory",
+            sortable: true,
+            sortType: "number",
+            sortDirection: "desc",
+            sortValue: (row) => inventoryByProduct[row.product_id]?.purchaseUnits || 0,
+            render: (row) => inventoryText(inventoryByProduct[row.product_id])
+          },
+          {
+            label: "Status",
+            sortable: true,
+            sortValue: (row) => isProductActive(row) ? "Active" : "Off",
+            render: (row) => productStatus(row, ctx.user)
+          }
         ], products)}
       </section>
     </div>
   `;
+
+  enableTableSorting(ctx.view);
 
   document.getElementById("productForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -126,7 +147,7 @@ function inventoryText(total) {
 }
 
 function productStatus(row, user) {
-  const checked = row.is_active === true || String(row.is_active).toUpperCase() === "TRUE";
+  const checked = isProductActive(row);
   if (!can(user, "products:edit")) return checked ? "ACTIVE" : "OFF";
   return `
     <label class="switch">
@@ -134,6 +155,10 @@ function productStatus(row, user) {
       <span>${checked ? "Active" : "Off"}</span>
     </label>
   `;
+}
+
+function isProductActive(row) {
+  return row.is_active === true || String(row.is_active).toUpperCase() === "TRUE";
 }
 
 function unique(values) {
