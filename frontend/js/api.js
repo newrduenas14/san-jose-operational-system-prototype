@@ -454,21 +454,28 @@ export async function receiveProduct(user, input) {
   if (!detail) throw new Error("Purchase order not found.");
   const line = data.purchaseOrderLines.find((item) => item.po_line_id === input.po_line_id);
   if (!line) throw new Error("Purchase order line not found.");
+  if (line.po_id !== input.po_id) throw new Error("The selected product does not belong to this purchase order.");
   const qtyReceived = numberValue(input.qty_received);
   const qtyDamaged = numberValue(input.qty_damaged);
   if (qtyReceived <= 0) throw new Error("Quantity received must be greater than zero.");
+  if (qtyDamaged < 0 || qtyDamaged > qtyReceived) throw new Error("Damaged quantity cannot exceed quantity received.");
+  const qualityStatus = String(input.quality_status || "PASS").toUpperCase();
+  if (!["PASS", "HOLD", "REJECTED"].includes(qualityStatus)) throw new Error("Select a valid quality status.");
+  if (qualityStatus === "REJECTED" && qtyDamaged !== qtyReceived) {
+    throw new Error("A rejected delivery must have the full received quantity marked as damaged/rejected.");
+  }
   const product = data.products.find((item) => item.product_id === line.product_id);
   const unitsPerPurchaseUnit = numberValue(line.units_per_purchase_unit, product?.units_per_purchase_unit || product?.case_weight_lbs || 1);
   const baseUnit = line.base_unit || product?.base_unit || line.unit_type;
   const acceptedPurchaseQty = qtyReceived - qtyDamaged;
   const acceptedBaseQty = numberValue(input.actual_base_qty, acceptedPurchaseQty * unitsPerPurchaseUnit);
-  const location = recommendLocation(data, product);
-  if (input.confirmed_location_id && input.confirmed_location_id !== location.location_id) {
-    const exists = data.locations.some((loc) => loc.location_id === input.confirmed_location_id);
-    if (!exists) throw new Error("Confirmed location scan was not found.");
-  }
+  const confirmedLocationRecord = data.locations.find((loc) => [loc.location_id, loc.qr_value].includes(input.confirmed_location_id));
+  if (!confirmedLocationRecord) throw new Error("Select or scan a valid warehouse location.");
   const internalLotId = input.internal_lot_id || uid("LOT", data.lots, "internal_lot_id");
-  const confirmedLocation = input.confirmed_location_id || location.location_id;
+  const confirmedLocation = confirmedLocationRecord.location_id;
+  const remainingBefore = numberValue(line.qty_remaining, numberValue(line.qty_ordered) - numberValue(line.qty_received_total));
+  const quantityStatus = acceptedPurchaseQty > remainingBefore ? "OVER" : acceptedPurchaseQty < remainingBefore ? "PARTIAL" : "MATCH";
+  const approvalStatus = qualityStatus === "PASS" ? "APPROVED" : qualityStatus;
   const receiving = {
     receiving_id: uid("RCV", data.receiving, "receiving_id"),
     po_id: input.po_id,
@@ -489,9 +496,12 @@ export async function receiveProduct(user, input) {
     qty_accepted_base: acceptedBaseQty,
     pallet_count: numberValue(input.pallet_count),
     quality_score: numberValue(input.quality_score, 5),
-    recommended_location_id: location.location_id,
+    quality_status: qualityStatus,
+    over_under_status: quantityStatus,
+    recommended_location_id: "",
     confirmed_location_id: confirmedLocation,
-    approval_status: "APPROVED",
+    requires_supervisor_approval: qualityStatus !== "PASS" || quantityStatus === "OVER",
+    approval_status: approvalStatus,
     notes: input.notes || ""
   };
   const lot = {
@@ -510,7 +520,7 @@ export async function receiveProduct(user, input) {
     pallet_count: receiving.pallet_count,
     unit_cost: line.unit_cost,
     current_location_id: confirmedLocation,
-    status: "ACTIVE",
+    status: qualityStatus === "PASS" ? "ACTIVE" : qualityStatus,
     qr_value: internalLotId,
     notes: "Created by prototype receiving flow."
   };
@@ -529,10 +539,10 @@ export async function receiveProduct(user, input) {
     related_receiving_id: receiving.receiving_id,
     scan_code: receiving.scan_code,
     device_id: "WEB-PROTOTYPE",
-    approval_status: "APPROVED"
+    approval_status: approvalStatus
   };
-  line.qty_received_total += qtyReceived;
-  line.qty_remaining = Math.max(0, line.qty_ordered - line.qty_received_total);
+  line.qty_received_total = numberValue(line.qty_received_total) + acceptedPurchaseQty;
+  line.qty_remaining = Math.max(0, numberValue(line.qty_ordered) - line.qty_received_total);
   if (line.qty_remaining === 0) line.line_status = "RECEIVED";
   const po = data.purchaseOrders.find((item) => item.po_id === input.po_id);
   if (!po.actual_first_received_date) po.actual_first_received_date = today();
