@@ -201,30 +201,36 @@ export async function createProduct(user, input) {
   if (useAppsScript()) return callAppsScript("createProduct", { user, input });
   requirePermission(user, "products:create");
   const data = await db();
-  const stock = calculateStockLevels(input, data);
-  const weightPerPurchaseUnit = numberValue(input.case_weight_lbs);
+  const productName = String(input.product_name || "").trim();
+  const productCategory = String(input.product_category || "").trim();
+  const perishabilityDays = numberValue(input.perishability_days);
+  if (!productName) throw new Error("Product name is required.");
+  if (!productCategory) throw new Error("Product category is required.");
+  if (perishabilityDays < 0) throw new Error("Perishability days cannot be negative.");
+  if (data.products.some((item) => String(item.product_name || "").trim().toLowerCase() === productName.toLowerCase())) {
+    throw new Error("A product with this name already exists.");
+  }
   const product = {
     product_id: input.product_id || uid("PROD", data.products, "product_id"),
-    product_name: input.product_name,
-    product_category: input.product_category || "",
-    default_unit: input.default_unit || "BOX",
+    product_name: productName,
+    product_category: productCategory,
+    default_unit: "",
     base_unit: "LB",
-    amount_per_purchase_unit: numberValue(input.amount_per_purchase_unit, 1),
-    units_per_purchase_unit: weightPerPurchaseUnit || numberValue(input.units_per_purchase_unit, 1),
-    can_break_case: "TRUE",
-    case_weight_lbs: weightPerPurchaseUnit,
-    perishability_days: numberValue(input.perishability_days),
-    amazon_sku: input.amazon_sku || "",
-    wholesale_sku: input.wholesale_sku || "",
-    barcode_or_qr_value: input.barcode_or_qr_value || input.product_id || "",
-    min_stock_qty: stock.min_stock_qty,
-    target_stock_qty: stock.target_stock_qty,
-    velocity_class: input.velocity_class || "",
-    storage_zone_preference: input.storage_zone_preference || "",
+    amount_per_purchase_unit: 0,
+    units_per_purchase_unit: 0,
+    can_break_case: "",
+    case_weight_lbs: 0,
+    perishability_days: perishabilityDays,
+    amazon_sku: "",
+    wholesale_sku: "",
+    barcode_or_qr_value: input.product_id || "",
+    min_stock_qty: 0,
+    target_stock_qty: 0,
+    velocity_class: "",
+    storage_zone_preference: "",
     is_active: true,
-    notes: input.notes || ""
+    notes: ""
   };
-  if (!product.product_name) throw new Error("Product name is required.");
   if (data.products.some((item) => item.product_id === product.product_id)) {
     throw new Error("Product ID already exists.");
   }

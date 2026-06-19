@@ -1,34 +1,33 @@
-import { createProduct, inventorySnapshot, listProducts, updateProductStatus } from "../js/api-smooth1.js";
+import { createProduct, inventorySnapshot, listProducts, updateProductStatus } from "../js/api-smooth1.js?v=productmaster1";
 import { can } from "../js/permissions.js";
 import { enableTableSorting, escapeHtml, formToObject, notice, table } from "../js/utils.js";
 
 export async function render(ctx) {
-  ctx.setTitle("Products", "Create product records for purchasing and inventory learning");
+  ctx.setTitle("Products", "Maintain the product master used across purchasing and inventory");
   const [products, inventoryRows] = await Promise.all([listProducts(), inventorySnapshot()]);
   const inventoryByProduct = inventoryTotalsByProduct(inventoryRows);
   ctx.view.innerHTML = `
     <div class="grid">
-      ${can(ctx.user, "products:create") ? productForm(products) : ""}
+      ${can(ctx.user, "products:create") ? productForm() : ""}
       <section class="panel">
         <div class="panel-header"><h2>Product Catalog</h2></div>
         ${table([
           { label: "Product ID", key: "product_id", sortable: true },
           { label: "Name", key: "product_name", sortable: true },
-          { label: "Purchase Unit", key: "default_unit", sortable: true },
+          { label: "Category", key: "product_category", sortable: true },
           {
-            label: "Lbs / Purchase Unit",
+            label: "Perishability",
             sortable: true,
             sortType: "number",
-            sortDirection: "desc",
-            sortValue: (row) => Number(row.case_weight_lbs || row.units_per_purchase_unit || 0),
-            render: (row) => formatNumber(row.case_weight_lbs || row.units_per_purchase_unit || 0)
+            sortValue: (row) => Number(row.perishability_days || 0),
+            render: (row) => formatPerishability(row.perishability_days)
           },
           {
             label: "Inventory",
             sortable: true,
             sortType: "number",
             sortDirection: "desc",
-            sortValue: (row) => inventoryByProduct[row.product_id]?.purchaseUnits || 0,
+            sortValue: (row) => inventorySortValue(inventoryByProduct[row.product_id]),
             render: (row) => inventoryText(inventoryByProduct[row.product_id])
           },
           {
@@ -70,20 +69,14 @@ export async function render(ctx) {
   });
 }
 
-function productForm(products) {
-  const productNames = unique(products.map((product) => product.product_name).filter(Boolean));
+function productForm() {
   return `
     <section class="panel">
       <div class="panel-header"><h2>Add Product</h2></div>
       <form id="productForm" class="form-grid">
-        <input name="base_unit" type="hidden" value="LB">
-        <input name="can_break_case" type="hidden" value="TRUE">
         <div class="field">
           <label>Product Name</label>
-          <input name="product_name" list="productNameOptions" required>
-          <datalist id="productNameOptions">
-            ${productNames.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("")}
-          </datalist>
+          <input name="product_name" autocomplete="off" required>
         </div>
         <div class="field">
           <label>Category</label>
@@ -98,20 +91,7 @@ function productForm(products) {
             <option>Other</option>
           </select>
         </div>
-        <div class="field">
-          <label>Purchase Unit</label>
-          <select name="default_unit">
-            <option>CASE</option>
-            <option>LB</option>
-            <option>BOX</option>
-            <option>EACH</option>
-            <option>BAG</option>
-            <option>ROLL</option>
-          </select>
-        </div>
-        <div class="field"><label>Amount Per Purchase Unit</label><input name="amount_per_purchase_unit" type="number" min="0.01" step="0.01" value="1" required></div>
-        <div class="field"><label>Weight Per Purchase Unit Lbs</label><input name="case_weight_lbs" type="number" min="0" step="0.01" required></div>
-        <div class="field"><label>Perishability Days</label><input name="perishability_days" type="number" min="0" step="1" placeholder="0 if none"></div>
+        <div class="field"><label>Perishability Days</label><input name="perishability_days" type="number" min="0" step="1" value="0" required></div>
         <div class="field full"><button class="btn" type="submit">Save Product</button></div>
       </form>
     </section>
@@ -122,17 +102,17 @@ function inventoryTotalsByProduct(rows) {
   return rows.reduce((totals, row) => {
     const key = row.product_id;
     if (!key) return totals;
-    const purchaseUnit = row.product?.default_unit || "";
     const baseUnit = row.unit_type || row.product?.base_unit || "";
-    const total = totals[key] || { purchaseUnits: 0, lbs: 0, unit: purchaseUnit || baseUnit };
+    const total = totals[key] || { lbs: 0, otherQty: 0, otherUnit: "" };
     const qty = Number(row.qty || row.current_qty || 0);
     const lbsPerUnit = Number(row.product?.case_weight_lbs || row.product?.units_per_purchase_unit || 0);
     if (String(baseUnit).toUpperCase() === "LB") {
       total.lbs += qty;
-      total.purchaseUnits += lbsPerUnit > 0 ? qty / lbsPerUnit : qty;
+    } else if (lbsPerUnit > 0) {
+      total.lbs += qty * lbsPerUnit;
     } else {
-      total.purchaseUnits += qty;
-      total.lbs += lbsPerUnit > 0 ? qty * lbsPerUnit : 0;
+      total.otherQty += qty;
+      total.otherUnit = baseUnit;
     }
     totals[key] = total;
     return totals;
@@ -141,9 +121,19 @@ function inventoryTotalsByProduct(rows) {
 
 function inventoryText(total) {
   if (!total) return "0";
-  const unit = total.unit ? ` ${escapeHtml(total.unit)}` : "";
-  const lbs = total.lbs > 0 ? ` / ${formatNumber(total.lbs)} LB` : "";
-  return `${formatNumber(total.purchaseUnits)}${unit}${lbs}`;
+  const values = [];
+  if (total.lbs) values.push(`${formatNumber(total.lbs)} LB`);
+  if (total.otherQty) values.push(`${formatNumber(total.otherQty)} ${escapeHtml(total.otherUnit)}`.trim());
+  return values.join(" / ") || "0";
+}
+
+function inventorySortValue(total) {
+  return total ? total.lbs || total.otherQty : 0;
+}
+
+function formatPerishability(value) {
+  const days = Number(value || 0);
+  return days > 0 ? `${formatNumber(days)} days` : "Non-perishable";
 }
 
 function productStatus(row, user) {
@@ -159,10 +149,6 @@ function productStatus(row, user) {
 
 function isProductActive(row) {
   return row.is_active === true || String(row.is_active).toUpperCase() === "TRUE";
-}
-
-function unique(values) {
-  return Array.from(new Set(values));
 }
 
 function formatNumber(value) {

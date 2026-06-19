@@ -108,36 +108,46 @@ function createProduct(payload) {
   requirePermission_(user, "products:create");
 
   const input = payload.input || {};
-  if (!input.product_name) throw new Error("Product name is required.");
-
   const products = readTable_("PRODUCTS");
-  ensureTableColumns_("PRODUCTS", ["base_unit", "units_per_purchase_unit", "can_break_case"]);
+  const productName = String(input.product_name || "").trim();
+  const productCategory = String(input.product_category || "").trim();
+  const perishabilityDays = Number(input.perishability_days || 0);
+  if (!productName) throw new Error("Product name is required.");
+  if (!productCategory) throw new Error("Product category is required.");
+  if (!Number.isFinite(perishabilityDays) || perishabilityDays < 0) {
+    throw new Error("Perishability days must be zero or greater.");
+  }
+  if (products.some((row) => String(row.product_name || "").trim().toLowerCase() === productName.toLowerCase())) {
+    throw new Error("A product with this name already exists.");
+  }
+
+  ensureTableColumns_("PRODUCTS", ["base_unit", "units_per_purchase_unit", "can_break_case", "perishability_days"]);
   const productId = input.product_id || nextId_("PRODUCTS", "product_id", "PROD");
-  const stock = calculateStockLevels_(input);
   if (products.some((row) => row.product_id === productId)) {
     throw new Error("Product ID already exists.");
   }
 
   const record = {
     product_id: productId,
-    product_name: input.product_name,
-    product_category: input.product_category || "",
-    default_unit: input.default_unit || "BOX",
-    base_unit: input.base_unit || input.default_unit || "BOX",
-    units_per_purchase_unit: Number(input.units_per_purchase_unit || input.case_weight_lbs || 1),
-    can_break_case: input.can_break_case || "FALSE",
-    case_weight_lbs: Number(input.case_weight_lbs || 0),
-    amazon_sku: input.amazon_sku || "",
-    wholesale_sku: input.wholesale_sku || "",
-    barcode_or_qr_value: input.barcode_or_qr_value || productId,
-    min_stock_qty: stock.min_stock_qty,
-    target_stock_qty: stock.target_stock_qty,
-    velocity_class: input.velocity_class || "",
-    storage_zone_preference: input.storage_zone_preference || "",
+    product_name: productName,
+    product_category: productCategory,
+    default_unit: "",
+    base_unit: "LB",
+    units_per_purchase_unit: 0,
+    can_break_case: "",
+    case_weight_lbs: 0,
+    perishability_days: perishabilityDays,
+    amazon_sku: "",
+    wholesale_sku: "",
+    barcode_or_qr_value: productId,
+    min_stock_qty: 0,
+    target_stock_qty: 0,
+    velocity_class: "",
+    storage_zone_preference: "",
     is_active: true,
     created_at: new Date(),
     updated_at: new Date(),
-    notes: input.notes || ""
+    notes: ""
   };
 
   appendRecord_("PRODUCTS", record);

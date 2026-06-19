@@ -4,7 +4,7 @@ The prototype follows the workbook database blueprint.
 
 ## Catalogs
 
-- `PRODUCTS`: product master, stable `product_id`, QR/barcode value, SKUs, stock thresholds.
+- `PRODUCTS`: product master with stable `product_id`, name, category, perishability days, active status, and a system-generated QR/barcode value. Purchase units and pack weights belong to purchase order lines rather than the product master.
 - `SUPPLIERS`: supplier master, stable `supplier_id`, contact and terms.
 - `LOCATIONS`: warehouse locations, stable `location_id`, QR value, category rules.
 - `USERS`: app users and roles.
