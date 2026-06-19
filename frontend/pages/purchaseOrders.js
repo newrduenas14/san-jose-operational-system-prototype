@@ -1,4 +1,4 @@
-import { createPurchaseOrder, getPurchaseOrderDetail, listProducts, listPurchaseOrders, listSuppliers, purchaseOrderAction } from "../js/api-smooth1.js?v=po-builder1";
+import { createPurchaseOrder, getPurchaseOrderDetail, listProducts, listPurchaseOrders, listSuppliers, purchaseOrderAction } from "../js/api-smooth1.js?v=api3";
 import { can } from "../js/permissions.js";
 import { escapeHtml, notice, status, table } from "../js/utils.js";
 

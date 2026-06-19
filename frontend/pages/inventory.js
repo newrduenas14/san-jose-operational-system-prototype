@@ -1,4 +1,4 @@
-import { inventorySnapshot, lookupScan, recordInventoryMovement } from "../js/api-smooth1.js";
+import { inventorySnapshot, lookupScan, recordInventoryMovement } from "../js/api-smooth1.js?v=api3";
 import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=smooth1";
 import { escapeHtml, formToObject, notice, table } from "../js/utils.js";
 

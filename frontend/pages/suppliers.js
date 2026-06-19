@@ -1,4 +1,4 @@
-import { createSupplier, listSuppliers } from "../js/api-smooth1.js";
+import { createSupplier, listSuppliers } from "../js/api-smooth1.js?v=api3";
 import { can } from "../js/permissions.js";
 import { formToObject, notice, status, table } from "../js/utils.js";
 

@@ -1,4 +1,4 @@
-import { getDashboard, resetToSpreadsheetSeed } from "../js/api-smooth1.js";
+import { getDashboard, resetToSpreadsheetSeed } from "../js/api-smooth1.js?v=api3";
 import { can } from "../js/permissions.js";
 import { notice } from "../js/utils.js";
 

@@ -1,4 +1,4 @@
-import { getOperationalReports } from "../js/api-smooth1.js";
+import { getOperationalReports } from "../js/api-smooth1.js?v=api3";
 import { escapeHtml, status, table } from "../js/utils.js";
 
 const REPORT_BLOCKS = [

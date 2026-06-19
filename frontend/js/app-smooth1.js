@@ -1,17 +1,17 @@
-import { warmOperationalCache } from "./api-smooth1.js?v=receiving-workflow1";
+import { warmOperationalCache } from "./api-smooth1.js?v=api3";
 import { getSession, roleOptions, setRole } from "./auth.js";
 import { renderNavigation, renderRoute, configureRouter } from "./router.js?v=smooth1";
 import { allowedPages } from "./permissions.js";
-import * as dashboard from "../pages/dashboard.js?v=smooth1";
-import * as products from "../pages/products.js?v=productmaster1";
-import * as suppliers from "../pages/suppliers.js?v=supplierterms1";
-import * as purchaseOrders from "../pages/purchaseOrders.js?v=po-product-menu1";
-import * as receiving from "../pages/receiving.js?v=receiving-workflow1";
-import * as inventory from "../pages/inventory.js?v=lotbase2";
-import * as scanner from "../pages/scannerTest.js?v=smooth1";
-import * as amazon from "../pages/amazon.js?v=smooth1";
-import * as reports from "../pages/reports.js?v=smooth1";
-import * as admin from "../pages/admin.js?v=smooth1";
+import * as dashboard from "../pages/dashboard.js?v=api3";
+import * as products from "../pages/products.js?v=api3";
+import * as suppliers from "../pages/suppliers.js?v=api3";
+import * as purchaseOrders from "../pages/purchaseOrders.js?v=api3";
+import * as receiving from "../pages/receiving.js?v=api3";
+import * as inventory from "../pages/inventory.js?v=api3";
+import * as scanner from "../pages/scannerTest.js?v=api3";
+import * as amazon from "../pages/amazon.js?v=api3";
+import * as reports from "../pages/reports.js?v=api3";
+import * as admin from "../pages/admin.js?v=api3";
 
 const view = document.getElementById("view");
 const title = document.getElementById("pageTitle");
