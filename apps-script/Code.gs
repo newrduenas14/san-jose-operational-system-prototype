@@ -201,9 +201,11 @@ function createSupplier(payload) {
 
 function listPurchaseOrders() {
   const suppliers = readTable_("SUPPLIERS");
+  const lines = readTable_("PURCHASE_ORDER_LINES");
   return readTable_("PURCHASE_ORDERS").map((po) => ({
     ...po,
-    supplier: suppliers.find((supplier) => supplier.supplier_id === po.supplier_id) || null
+    supplier: suppliers.find((supplier) => supplier.supplier_id === po.supplier_id) || null,
+    line_count: lines.filter((line) => line.po_id === po.po_id).length
   }));
 }
 
@@ -211,6 +213,7 @@ function getPurchaseOrderDetail(payload) {
   payload = payload || {};
   const poId = payload.poId || payload.po_id;
   const products = readTable_("PRODUCTS");
+  const suppliers = readTable_("SUPPLIERS");
   const po = readTable_("PURCHASE_ORDERS").find((row) => row.po_id === poId);
   if (!po) return null;
 
@@ -221,7 +224,13 @@ function getPurchaseOrderDetail(payload) {
       product: products.find((product) => product.product_id === line.product_id) || null
     }));
 
-  return { po, lines };
+  return {
+    po: {
+      ...po,
+      supplier: suppliers.find((supplier) => supplier.supplier_id === po.supplier_id) || null
+    },
+    lines
+  };
 }
 
 function generatePurchaseOrderTemplate(payload) {
@@ -231,7 +240,14 @@ function generatePurchaseOrderTemplate(payload) {
     po: detail.po,
     lines: detail.lines.map((line) => ({
       ...line,
-      qr_value: purchaseOrderQrValue_(line.product_id, line.qty_ordered, line.supplier_expected_lot_number)
+      qr_value: line.qr_value || purchaseOrderQrValue_({
+        poId: line.po_id,
+        poLineId: line.po_line_id,
+        productId: line.product_id,
+        productName: line.product && line.product.product_name || line.product_id,
+        qty: line.qty_ordered,
+        supplierLotNumber: line.supplier_expected_lot_number
+      })
     }))
   };
 }
@@ -240,79 +256,126 @@ function createPurchaseOrder(payload) {
   payload = payload || {};
   const user = payload.user || {};
   requirePermission_(user, "purchaseOrders:create");
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const input = payload.input || {};
+    const suppliers = readTable_("SUPPLIERS");
+    const supplier = suppliers.find((row) => row.supplier_id === input.supplier_id);
+    if (!supplier) throw new Error("Select a valid supplier.");
+    const products = readTable_("PRODUCTS");
+    const inputLines = Array.isArray(input.lines) ? input.lines : [input];
+    if (!inputLines.length) throw new Error("Add at least one product.");
+    const validatedLines = inputLines.map((item, index) => validatePurchaseOrderLine_(item, index, products));
 
-  const input = payload.input || {};
-  if (!input.supplier_id) throw new Error("Supplier is required.");
-  if (!input.product_id) throw new Error("Product is required.");
+    ensureTableColumns_("PURCHASE_ORDERS", ["tax_enabled", "tax_rate", "ship_via"]);
+    ensureTableColumns_("PURCHASE_ORDER_LINES", ["base_unit", "units_per_purchase_unit", "expected_base_qty", "case_weight_lbs", "qr_value"]);
 
-  const qty = Number(input.qty_ordered || 1);
-  const unitCost = Number(input.unit_cost || 0);
-  const product = readTable_("PRODUCTS").find((row) => row.product_id === input.product_id) || {};
-  const unitsPerPurchaseUnit = Number(input.units_per_purchase_unit || product.units_per_purchase_unit || product.case_weight_lbs || 1) || 1;
-  const baseUnit = input.base_unit || product.base_unit || input.unit_type || product.default_unit || "EACH";
-  ensureTableColumns_("PURCHASE_ORDER_LINES", ["base_unit", "units_per_purchase_unit", "expected_base_qty", "case_weight_lbs"]);
-  const poId = nextId_("PURCHASE_ORDERS", "po_id", "PO");
-  const poLineId = nextId_("PURCHASE_ORDER_LINES", "po_line_id", "POL");
-  const supplierLotNumber = input.supplier_expected_lot_number || supplierLotNumber_(input.supplier_id, input.product_id);
+    const subtotal = round_(validatedLines.reduce((sum, line) => sum + line.qty_ordered * line.unit_cost, 0), 2);
+    const taxEnabled = input.tax_enabled === true || String(input.tax_enabled).toUpperCase() === "TRUE";
+    const taxRate = taxEnabled ? Math.max(0, Number(input.tax_rate_percent || 6.25) / 100) : 0;
+    const taxAmount = round_(subtotal * taxRate, 2);
+    const orderDate = dateFromInput_(input.order_date);
+    const expectedDeliveryDate = input.expected_delivery_date
+      ? dateFromInput_(input.expected_delivery_date)
+      : addDays_(orderDate, calculateSupplierLeadTime_(input.supplier_id));
+    const poId = nextId_("PURCHASE_ORDERS", "po_id", "PO");
+    const firstPoLineId = nextId_("PURCHASE_ORDER_LINES", "po_line_id", "POL");
+    const firstPoLineNumber = Number(String(firstPoLineId).match(/(\d+)$/)[1]);
+    const currency = supplier.default_currency || "USD";
 
-  const po = {
-    po_id: poId,
-    po_status: "DRAFT",
-    supplier_id: input.supplier_id,
-    created_by: user.user_id || user.role || "UNKNOWN",
-    order_date: new Date(),
-    expected_delivery_date: input.expected_delivery_date || "",
-    actual_first_received_date: "",
-    actual_completed_date: "",
-    payment_terms: "Net 30",
-    currency: "USD",
-    subtotal_amount: qty * unitCost,
-    tax_amount: 0,
-    shipping_amount: 0,
-    total_amount: qty * unitCost,
-    recommendation_id: "",
-    po_doc_url: "",
-    po_pdf_url: "",
-    email_status: "NOT_SENT",
-    email_sent_at: "",
-    printed_status: "NOT_PRINTED",
-    printed_at: "",
-    supplier_confirmation_status: "PENDING",
-    supplier_confirmed_delivery_date: "",
-    notes: input.notes || ""
-  };
+    const po = {
+      po_id: poId,
+      po_status: "DRAFT",
+      supplier_id: input.supplier_id,
+      created_by: user.user_id || user.role || "UNKNOWN",
+      order_date: orderDate,
+      expected_delivery_date: expectedDeliveryDate,
+      actual_first_received_date: "",
+      actual_completed_date: "",
+      payment_terms: supplier.payment_terms || "Net 30",
+      currency,
+      subtotal_amount: subtotal,
+      tax_enabled: taxEnabled,
+      tax_rate: taxRate,
+      tax_amount: taxAmount,
+      shipping_amount: 0,
+      ship_via: input.ship_via || "SUPPLIER_DELIVERY",
+      total_amount: round_(subtotal + taxAmount, 2),
+      recommendation_id: "",
+      po_doc_url: "",
+      po_pdf_url: "",
+      email_status: "NOT_SENT",
+      email_sent_at: "",
+      printed_status: "NOT_PRINTED",
+      printed_at: "",
+      supplier_confirmation_status: "PENDING",
+      supplier_confirmed_delivery_date: "",
+      notes: input.notes || ""
+    };
 
-  const line = {
-    po_line_id: poLineId,
-    po_id: poId,
-    supplier_id: input.supplier_id,
-    product_id: input.product_id,
-    line_status: "ORDERED",
-    qty_ordered: qty,
-    qty_received_total: 0,
-    qty_remaining: qty,
-    unit_type: input.unit_type || product.default_unit || "BOX",
-    base_unit: baseUnit,
-    units_per_purchase_unit: unitsPerPurchaseUnit,
-    expected_base_qty: qty * unitsPerPurchaseUnit,
-    case_weight_lbs: Number(input.case_weight_lbs || product.case_weight_lbs || 0),
-    unit_cost: unitCost,
-    currency: "USD",
-    line_total: qty * unitCost,
-    supplier_expected_lot_number: supplierLotNumber,
-    notes: input.notes || ""
-  };
+    const lines = validatedLines.map((item, index) => {
+      const product = products.find((row) => row.product_id === item.product_id);
+      const poLineId = `POL-${String(firstPoLineNumber + index).padStart(6, "0")}`;
+      const line = {
+        po_line_id: poLineId,
+        po_id: poId,
+        supplier_id: input.supplier_id,
+        product_id: item.product_id,
+        line_status: "ORDERED",
+        qty_ordered: item.qty_ordered,
+        qty_received_total: 0,
+        qty_remaining: item.qty_ordered,
+        unit_type: item.unit_type,
+        base_unit: "LB",
+        units_per_purchase_unit: item.case_weight_lbs,
+        expected_base_qty: round_(item.qty_ordered * item.case_weight_lbs, 2),
+        case_weight_lbs: item.case_weight_lbs,
+        unit_cost: item.unit_cost,
+        currency,
+        line_total: round_(item.qty_ordered * item.unit_cost, 2),
+        supplier_expected_lot_number: item.supplier_expected_lot_number,
+        notes: ""
+      };
+      line.qr_value = purchaseOrderQrValue_({
+        poId,
+        poLineId,
+        productId: item.product_id,
+        productName: product.product_name,
+        qty: item.qty_ordered,
+        supplierLotNumber: item.supplier_expected_lot_number
+      });
+      return line;
+    });
 
-  appendRecord_("PURCHASE_ORDERS", po);
-  appendRecord_("PURCHASE_ORDER_LINES", line);
-  return po;
+    appendRecord_("PURCHASE_ORDERS", po);
+    lines.forEach((line) => appendRecord_("PURCHASE_ORDER_LINES", line));
+    return { ...po, lines };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
-function supplierLotNumber_(supplierId, productId) {
-  const supplier = String(supplierId || "SUP").replace(/[^A-Z0-9]/gi, "").slice(-4).toUpperCase();
-  const product = String(productId || "PROD").replace(/[^A-Z0-9]/gi, "").slice(-4).toUpperCase();
-  const date = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyMMdd");
-  return `${supplier}-${product}-${date}`;
+function validatePurchaseOrderLine_(input, index, products) {
+  const lineNumber = index + 1;
+  const product = products.find((row) => row.product_id === input.product_id);
+  const qty = Number(input.qty_ordered || 0);
+  const unitCost = Number(input.unit_cost || 0);
+  const unitWeight = Number(input.case_weight_lbs || input.units_per_purchase_unit || 0);
+  const unitType = String(input.unit_type || "").trim().toUpperCase();
+  if (!product) throw new Error(`Select a valid product on line ${lineNumber}.`);
+  if (!isFinite(qty) || qty <= 0) throw new Error(`Quantity must be greater than zero on line ${lineNumber}.`);
+  if (!unitType) throw new Error(`Purchase unit is required on line ${lineNumber}.`);
+  if (!isFinite(unitWeight) || unitWeight <= 0) throw new Error(`Unit weight must be greater than zero on line ${lineNumber}.`);
+  if (!isFinite(unitCost) || unitCost < 0) throw new Error(`Unit cost cannot be negative on line ${lineNumber}.`);
+  return {
+    product_id: product.product_id,
+    qty_ordered: qty,
+    unit_type: unitType,
+    case_weight_lbs: unitWeight,
+    unit_cost: unitCost,
+    supplier_expected_lot_number: String(input.supplier_expected_lot_number || "").trim()
+  };
 }
 
 function purchaseOrderAction(payload) {
@@ -877,19 +940,51 @@ function updatePoStatus_(poId) {
   const meta = tableMeta_("PURCHASE_ORDERS");
   const idIndex = meta.headers.indexOf("po_id");
   const statusIndex = meta.headers.indexOf("po_status");
+  const firstReceivedIndex = meta.headers.indexOf("actual_first_received_date");
+  const completedIndex = meta.headers.indexOf("actual_completed_date");
   for (let r = meta.headerRow + 1; r <= meta.sheet.getLastRow(); r++) {
     if (meta.sheet.getRange(r, idIndex + 1).getValue() === poId) {
       meta.sheet.getRange(r, statusIndex + 1).setValue(status);
+      if (firstReceivedIndex >= 0 && !meta.sheet.getRange(r, firstReceivedIndex + 1).getValue()) {
+        meta.sheet.getRange(r, firstReceivedIndex + 1).setValue(new Date());
+      }
+      if (allReceived && completedIndex >= 0) {
+        meta.sheet.getRange(r, completedIndex + 1).setValue(new Date());
+      }
       return;
     }
   }
 }
 
-function purchaseOrderQrValue_(productId, qty, supplierLotNumber) {
-  return [productId, "QTY:" + Number(qty || 0), "SUPLOT:" + (supplierLotNumber || "PENDING")].join("|");
+function purchaseOrderQrValue_(input) {
+  return JSON.stringify({
+    v: 1,
+    type: "PO_LINE",
+    po_id: input.poId,
+    po_line_id: input.poLineId,
+    product_id: input.productId,
+    product_name: input.productName,
+    qty: Number(input.qty || 0),
+    supplier_lot_number: input.supplierLotNumber || "PENDING"
+  });
 }
 
 function parsePurchaseOrderQr_(value) {
+  try {
+    const parsed = JSON.parse(String(value || ""));
+    if (parsed && parsed.type === "PO_LINE" && parsed.product_id) {
+      return {
+        po_id: parsed.po_id || "",
+        po_line_id: parsed.po_line_id || "",
+        product_id: parsed.product_id,
+        product_name: parsed.product_name || "",
+        qty: Number(parsed.qty || 0),
+        supplier_lot_number: parsed.supplier_lot_number === "PENDING" ? "" : parsed.supplier_lot_number || ""
+      };
+    }
+  } catch (_error) {
+    // Continue with legacy pipe-delimited PO QR values.
+  }
   const parts = String(value || "").split("|").map((part) => part.trim());
   if (parts.length < 2 || parts[1].indexOf("QTY:") !== 0) return null;
   const qtyPart = parts.find((part) => part.indexOf("QTY:") === 0) || "";
@@ -918,11 +1013,33 @@ function calculateStockLevels_(input) {
 function calculateSupplierLeadTime_(supplierId) {
   if (!supplierId) return 5;
   const leadTimes = readTable_("PURCHASE_ORDERS")
-    .filter((po) => po.supplier_id === supplierId && po.order_date && po.actual_completed_date)
-    .map((po) => daysBetween_(po.order_date, po.actual_completed_date))
+    .filter((po) => po.supplier_id === supplierId && po.order_date && (po.actual_first_received_date || po.actual_completed_date))
+    .sort((a, b) => new Date(b.order_date).getTime() - new Date(a.order_date).getTime())
+    .slice(0, 10)
+    .map((po) => daysBetween_(po.order_date, po.actual_first_received_date || po.actual_completed_date))
     .filter((days) => isFinite(days) && days >= 0);
   if (!leadTimes.length) return 5;
-  return Math.round(leadTimes.reduce((sum, days) => sum + days, 0) / leadTimes.length);
+  leadTimes.sort((a, b) => a - b);
+  const middle = Math.floor(leadTimes.length / 2);
+  const median = leadTimes.length % 2
+    ? leadTimes[middle]
+    : (leadTimes[middle - 1] + leadTimes[middle]) / 2;
+  return Math.round(median);
+}
+
+function dateFromInput_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) return value;
+  const parts = String(value || "").split("-").map(Number);
+  if (parts.length === 3 && parts.every((part) => isFinite(part))) {
+    return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+  }
+  return new Date();
+}
+
+function addDays_(dateValue, days) {
+  const date = new Date(dateValue);
+  date.setDate(date.getDate() + Math.max(0, Math.round(Number(days || 5))));
+  return date;
 }
 
 function daysBetween_(start, end) {

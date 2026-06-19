@@ -12,8 +12,8 @@ The prototype follows the workbook database blueprint.
 
 ## Purchasing
 
-- `PURCHASE_ORDERS`: PO headers and document status.
-- `PURCHASE_ORDER_LINES`: PO line items and received quantities.
+- `PURCHASE_ORDERS`: one header per supplier order, including purchase date, learned expected delivery, ship method, tax settings, totals, and document status.
+- `PURCHASE_ORDER_LINES`: one or more product lines per PO with purchase quantity, pack type, unit weight, cost, expected supplier lot, received quantities, and a receiving QR value.
 - `PO_PRINT_TEMPLATES`: future templates for PO email/print/PDF.
 - `PO_DOCUMENT_LOG`: future generated/sent/printed document audit trail.
 

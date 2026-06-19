@@ -1,6 +1,6 @@
-import { getPurchaseOrderDetail, listPurchaseOrders, receiveProduct } from "../js/api-smooth1.js";
+import { getPurchaseOrderDetail, listPurchaseOrders, receiveProduct } from "../js/api-smooth1.js?v=po-builder1";
 import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=smooth1";
-import { formToObject, notice, table } from "../js/utils.js";
+import { escapeHtml, formToObject, notice, table } from "../js/utils.js";
 
 export async function render(ctx) {
   ctx.setTitle("Receive Product", "Receive against purchase orders and create lot/movement records");
@@ -52,7 +52,7 @@ export async function render(ctx) {
   document.getElementById("receiveForm").addEventListener("change", updateBaseQtyPreview);
   const scanInput = document.getElementById("receiveScan");
   handleKeyboardScan(scanInput, (value) => {
-    handleReceivingScan(value);
+    handleReceivingScan(value).catch((error) => notice(error.message));
   });
   handleKeyboardScan(document.getElementById("locationScan"), (value) => {
     document.getElementById("receiveResult").textContent = `Captured location scan: ${value}`;
@@ -61,7 +61,7 @@ export async function render(ctx) {
   document.getElementById("scanReceiveQr").addEventListener("click", async () => {
     try {
       await startCameraScanner("receiveScan", (value) => {
-        handleReceivingScan(value);
+        handleReceivingScan(value).catch((error) => notice(error.message));
         stopCameraScanner();
       });
     } catch (error) {
@@ -115,20 +115,28 @@ async function renderLines(poId) {
   updateBaseQtyPreview();
 }
 
-function handleReceivingScan(value) {
+async function handleReceivingScan(value) {
   const parsed = parsePurchaseOrderQr(value);
   if (parsed) {
+    const poSelect = document.getElementById("poSelect");
+    if (parsed.poId && poSelect.value !== parsed.poId) {
+      const poExists = Array.from(poSelect.options).some((option) => option.value === parsed.poId);
+      if (!poExists) throw new Error(`${parsed.poId} is not available for receiving.`);
+      poSelect.value = parsed.poId;
+      await renderLines(parsed.poId);
+    }
     document.querySelector("[name='qty_received']").value = parsed.qty || 1;
     document.querySelector("[name='supplier_lot_number']").value = parsed.supplierLot || "";
     const matchingRadio = Array.from(document.querySelectorAll("[name='po_line_id']"))
-      .find((radio) => radio.dataset.productId === parsed.productId);
+      .find((radio) => parsed.poLineId ? radio.value === parsed.poLineId : radio.dataset.productId === parsed.productId);
     if (matchingRadio) matchingRadio.checked = true;
     updateBaseQtyPreview();
     document.getElementById("receiveResult").innerHTML = `
       <strong>PO QR captured</strong><br>
-      Product: ${parsed.productId}<br>
-      Quantity: ${parsed.qty}<br>
-      Supplier lot: ${parsed.supplierLot || "PENDING"}<br>
+      PO: ${escapeHtml(parsed.poId || poSelect.value)}<br>
+      Product: ${escapeHtml(parsed.productName || parsed.productId)}<br>
+      Quantity: ${escapeHtml(parsed.qty)}<br>
+      Supplier lot: ${escapeHtml(parsed.supplierLot || "PENDING")}<br>
       Confirm quality, quantity, and final location before receiving.
     `;
     return;
@@ -161,6 +169,21 @@ function updateBaseQtyPreview() {
 }
 
 function parsePurchaseOrderQr(value) {
+  try {
+    const parsed = JSON.parse(String(value || ""));
+    if (parsed?.type === "PO_LINE" && parsed.product_id) {
+      return {
+        poId: parsed.po_id || "",
+        poLineId: parsed.po_line_id || "",
+        productId: parsed.product_id,
+        productName: parsed.product_name || "",
+        qty: Number(parsed.qty || 0),
+        supplierLot: parsed.supplier_lot_number === "PENDING" ? "" : parsed.supplier_lot_number || ""
+      };
+    }
+  } catch (_error) {
+    // Continue with legacy pipe-delimited PO QR values.
+  }
   const parts = String(value || "").split("|").map((part) => part.trim());
   if (parts.length < 2 || !parts[1].startsWith("QTY:")) return null;
   return {

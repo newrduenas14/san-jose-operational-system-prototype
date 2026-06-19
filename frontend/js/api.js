@@ -298,7 +298,8 @@ export async function listPurchaseOrders() {
   const data = await db();
   return data.purchaseOrders.map((po) => ({
     ...po,
-    supplier: data.suppliers.find((s) => s.supplier_id === po.supplier_id)
+    supplier: data.suppliers.find((s) => s.supplier_id === po.supplier_id),
+    line_count: data.purchaseOrderLines.filter((line) => line.po_id === po.po_id).length
   }));
 }
 
@@ -313,7 +314,13 @@ export async function getPurchaseOrderDetail(poId) {
       ...line,
       product: data.products.find((product) => product.product_id === line.product_id)
     }));
-  return { po, lines };
+  return {
+    po: {
+      ...po,
+      supplier: data.suppliers.find((supplier) => supplier.supplier_id === po.supplier_id)
+    },
+    lines
+  };
 }
 
 export async function generatePurchaseOrderTemplate(poId) {
@@ -327,50 +334,102 @@ export async function createPurchaseOrder(user, input) {
   if (useAppsScript()) return callAppsScript("createPurchaseOrder", { user, input });
   requirePermission(user, "purchaseOrders:create");
   const data = await db();
-  const qty = numberValue(input.qty_ordered, 1);
-  const unitCost = numberValue(input.unit_cost);
-  const product = data.products.find((item) => item.product_id === input.product_id) || {};
-  const unitsPerPurchaseUnit = numberValue(input.units_per_purchase_unit, product.units_per_purchase_unit || product.case_weight_lbs || 1);
-  const baseUnit = input.base_unit || product.base_unit || input.unit_type || product.default_unit || "EACH";
+  const supplier = data.suppliers.find((item) => item.supplier_id === input.supplier_id);
+  if (!supplier) throw new Error("Select a valid supplier.");
+  const inputLines = Array.isArray(input.lines) ? input.lines : [input];
+  if (!inputLines.length) throw new Error("Add at least one product.");
+  const validatedLines = inputLines.map((item, index) => validatePurchaseOrderLine(item, index, data.products));
+  const subtotal = round(validatedLines.reduce((sum, line) => sum + line.qty_ordered * line.unit_cost, 0), 2);
+  const taxEnabled = input.tax_enabled === true || String(input.tax_enabled).toUpperCase() === "TRUE";
+  const taxRate = taxEnabled ? Math.max(0, numberValue(input.tax_rate_percent, 6.25) / 100) : 0;
+  const taxAmount = round(subtotal * taxRate, 2);
+  const orderDate = input.order_date || today();
+  const expectedDeliveryDate = input.expected_delivery_date
+    || addDays(orderDate, calculateSupplierLeadTime(input.supplier_id, data));
   const po = {
     po_id: uid("PO", data.purchaseOrders, "po_id"),
     po_status: "DRAFT",
     supplier_id: input.supplier_id,
     created_by: user.user_id,
-    order_date: today(),
-    expected_delivery_date: input.expected_delivery_date || "",
-    payment_terms: "Net 30",
-    currency: "USD",
-    subtotal_amount: qty * unitCost,
-    total_amount: qty * unitCost,
+    order_date: orderDate,
+    expected_delivery_date: expectedDeliveryDate,
+    actual_first_received_date: "",
+    actual_completed_date: "",
+    payment_terms: supplier.payment_terms || "Net 30",
+    currency: supplier.default_currency || "USD",
+    subtotal_amount: subtotal,
+    tax_enabled: taxEnabled,
+    tax_rate: taxRate,
+    tax_amount: taxAmount,
+    shipping_amount: 0,
+    ship_via: input.ship_via || "SUPPLIER_DELIVERY",
+    total_amount: round(subtotal + taxAmount, 2),
     email_status: "NOT_SENT",
     printed_status: "NOT_PRINTED",
     supplier_confirmation_status: "PENDING",
     notes: input.notes || ""
   };
-  const line = {
-    po_line_id: uid("POL", data.purchaseOrderLines, "po_line_id"),
-    po_id: po.po_id,
-    supplier_id: input.supplier_id,
-    product_id: input.product_id,
-    line_status: "ORDERED",
-    qty_ordered: qty,
-    qty_received_total: 0,
-    qty_remaining: qty,
-    unit_type: input.unit_type || product.default_unit || "BOX",
-    base_unit: baseUnit,
-    units_per_purchase_unit: unitsPerPurchaseUnit,
-    expected_base_qty: qty * unitsPerPurchaseUnit,
-    case_weight_lbs: numberValue(input.case_weight_lbs, product.case_weight_lbs || 0),
-    unit_cost: unitCost,
-    line_total: qty * unitCost,
-    supplier_expected_lot_number: input.supplier_expected_lot_number || "",
-    qr_value: purchaseOrderQrValue(input.product_id, qty, input.supplier_expected_lot_number)
-  };
+  const idRecords = [...data.purchaseOrderLines];
+  const lines = validatedLines.map((item) => {
+    const product = data.products.find((record) => record.product_id === item.product_id);
+    const poLineId = uid("POL", idRecords, "po_line_id");
+    idRecords.push({ po_line_id: poLineId });
+    const line = {
+      po_line_id: poLineId,
+      po_id: po.po_id,
+      supplier_id: input.supplier_id,
+      product_id: item.product_id,
+      line_status: "ORDERED",
+      qty_ordered: item.qty_ordered,
+      qty_received_total: 0,
+      qty_remaining: item.qty_ordered,
+      unit_type: item.unit_type,
+      base_unit: "LB",
+      units_per_purchase_unit: item.case_weight_lbs,
+      expected_base_qty: round(item.qty_ordered * item.case_weight_lbs, 2),
+      case_weight_lbs: item.case_weight_lbs,
+      unit_cost: item.unit_cost,
+      currency: po.currency,
+      line_total: round(item.qty_ordered * item.unit_cost, 2),
+      supplier_expected_lot_number: item.supplier_expected_lot_number,
+      notes: ""
+    };
+    line.qr_value = purchaseOrderQrValue({
+      poId: po.po_id,
+      poLineId,
+      productId: item.product_id,
+      productName: product.product_name,
+      qty: item.qty_ordered,
+      supplierLotNumber: item.supplier_expected_lot_number
+    });
+    return line;
+  });
   data.purchaseOrders.push(po);
-  data.purchaseOrderLines.push(line);
+  data.purchaseOrderLines.push(...lines);
   save();
-  return po;
+  return { ...po, lines };
+}
+
+function validatePurchaseOrderLine(item, index, products) {
+  const product = products.find((record) => record.product_id === item.product_id);
+  const lineNumber = index + 1;
+  const qty = numberValue(item.qty_ordered);
+  const unitCost = numberValue(item.unit_cost);
+  const unitWeight = numberValue(item.case_weight_lbs || item.units_per_purchase_unit);
+  const unitType = String(item.unit_type || "").trim().toUpperCase();
+  if (!product) throw new Error(`Select a valid product on line ${lineNumber}.`);
+  if (qty <= 0) throw new Error(`Quantity must be greater than zero on line ${lineNumber}.`);
+  if (!unitType) throw new Error(`Purchase unit is required on line ${lineNumber}.`);
+  if (unitWeight <= 0) throw new Error(`Unit weight must be greater than zero on line ${lineNumber}.`);
+  if (unitCost < 0) throw new Error(`Unit cost cannot be negative on line ${lineNumber}.`);
+  return {
+    product_id: product.product_id,
+    qty_ordered: qty,
+    unit_type: unitType,
+    case_weight_lbs: unitWeight,
+    unit_cost: unitCost,
+    supplier_expected_lot_number: String(item.supplier_expected_lot_number || "").trim()
+  };
 }
 
 export async function purchaseOrderAction(user, poId, action) {
@@ -476,7 +535,11 @@ export async function receiveProduct(user, input) {
   line.qty_remaining = Math.max(0, line.qty_ordered - line.qty_received_total);
   if (line.qty_remaining === 0) line.line_status = "RECEIVED";
   const po = data.purchaseOrders.find((item) => item.po_id === input.po_id);
-  po.po_status = line.qty_remaining === 0 ? "COMPLETE" : "PARTIALLY_RECEIVED";
+  if (!po.actual_first_received_date) po.actual_first_received_date = today();
+  const poLines = data.purchaseOrderLines.filter((item) => item.po_id === input.po_id);
+  const allReceived = poLines.length > 0 && poLines.every((item) => numberValue(item.qty_remaining) === 0);
+  po.po_status = allReceived ? "COMPLETE" : "PARTIALLY_RECEIVED";
+  if (allReceived) po.actual_completed_date = today();
   data.receiving.push(receiving);
   data.lots.push(lot);
   data.inventoryMovements.push(movement);
@@ -519,8 +582,17 @@ export async function recordInventoryMovement(user, input) {
   return movement;
 }
 
-export function purchaseOrderQrValue(productId, qty, supplierLotNumber = "") {
-  return [productId, `QTY:${numberValue(qty, 0)}`, `SUPLOT:${supplierLotNumber || "PENDING"}`].join("|");
+export function purchaseOrderQrValue({ poId, poLineId, productId, productName, qty, supplierLotNumber = "" }) {
+  return JSON.stringify({
+    v: 1,
+    type: "PO_LINE",
+    po_id: poId,
+    po_line_id: poLineId,
+    product_id: productId,
+    product_name: productName,
+    qty: numberValue(qty),
+    supplier_lot_number: supplierLotNumber || "PENDING"
+  });
 }
 
 function calculateStockLevels(input, data) {
@@ -547,11 +619,20 @@ function calculateStockLevels(input, data) {
 
 function calculateSupplierLeadTime(supplierId, data) {
   const completed = data.purchaseOrders
-    .filter((po) => po.supplier_id === supplierId && po.order_date && po.actual_completed_date)
-    .map((po) => daysBetween(po.order_date, po.actual_completed_date))
+    .filter((po) => po.supplier_id === supplierId && po.order_date && (po.actual_first_received_date || po.actual_completed_date))
+    .sort((a, b) => new Date(b.order_date) - new Date(a.order_date))
+    .slice(0, 10)
+    .map((po) => daysBetween(po.order_date, po.actual_first_received_date || po.actual_completed_date))
     .filter((days) => Number.isFinite(days) && days >= 0);
   if (!completed.length) return 5;
-  return Math.round(completed.reduce((sum, days) => sum + days, 0) / completed.length);
+  return Math.round(median(completed));
+}
+
+function addDays(dateValue, days) {
+  const date = new Date(`${dateValue}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return "";
+  date.setDate(date.getDate() + Math.max(0, Math.round(numberValue(days, 5))));
+  return date.toISOString().slice(0, 10);
 }
 
 function daysBetween(start, end) {
@@ -566,7 +647,14 @@ function buildPurchaseOrderTemplate({ po, lines }) {
     po,
     lines: lines.map((line) => ({
       ...line,
-      qr_value: purchaseOrderQrValue(line.product_id, line.qty_ordered, line.supplier_expected_lot_number)
+      qr_value: line.qr_value || purchaseOrderQrValue({
+        poId: line.po_id,
+        poLineId: line.po_line_id,
+        productId: line.product_id,
+        productName: line.product?.product_name || line.product_id,
+        qty: line.qty_ordered,
+        supplierLotNumber: line.supplier_expected_lot_number
+      })
     }))
   };
 }
@@ -775,6 +863,13 @@ function velocityDays(velocityClass) {
 function average(values) {
   const clean = values.map(Number).filter(Number.isFinite);
   return clean.length ? clean.reduce((sum, value) => sum + value, 0) / clean.length : 0;
+}
+
+function median(values) {
+  const clean = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!clean.length) return 0;
+  const middle = Math.floor(clean.length / 2);
+  return clean.length % 2 ? clean[middle] : (clean[middle - 1] + clean[middle]) / 2;
 }
 
 function std(values) {
