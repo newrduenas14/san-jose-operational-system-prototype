@@ -5,7 +5,7 @@ import { allowedPages } from "./permissions.js";
 import * as dashboard from "../pages/dashboard.js?v=smooth1";
 import * as products from "../pages/products.js?v=productmaster1";
 import * as suppliers from "../pages/suppliers.js?v=supplierterms1";
-import * as purchaseOrders from "../pages/purchaseOrders.js?v=po-labels1";
+import * as purchaseOrders from "../pages/purchaseOrders.js?v=po-labels2";
 import * as receiving from "../pages/receiving.js?v=po-builder1";
 import * as inventory from "../pages/inventory.js?v=lotbase2";
 import * as scanner from "../pages/scannerTest.js?v=smooth1";
