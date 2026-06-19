@@ -45,7 +45,14 @@ function supplierForm() {
         <div class="field"><label>Contact Name</label><input name="contact_name"></div>
         <div class="field"><label>Email</label><input name="email" type="email"></div>
         <div class="field"><label>Phone</label><input name="phone"></div>
-        <div class="field"><label>Payment Terms</label><input name="payment_terms" value="Net 30"></div>
+        <div class="field">
+          <label>Payment Terms</label>
+          <select name="payment_terms" required>
+            <option>Net 15</option>
+            <option>Net 21</option>
+            <option selected>Net 30</option>
+          </select>
+        </div>
         <div class="field"><label>Currency</label><input name="default_currency" value="USD"></div>
         <div class="field full"><p class="muted">Lead time starts at 5 days and is recalculated from completed purchase order history over time.</p></div>
         <div class="field full"><label>Address</label><textarea name="address"></textarea></div>

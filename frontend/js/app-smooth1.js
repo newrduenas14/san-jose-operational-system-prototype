@@ -4,7 +4,7 @@ import { renderNavigation, renderRoute, configureRouter } from "./router.js?v=sm
 import { allowedPages } from "./permissions.js";
 import * as dashboard from "../pages/dashboard.js?v=smooth1";
 import * as products from "../pages/products.js?v=productmaster1";
-import * as suppliers from "../pages/suppliers.js?v=smooth1";
+import * as suppliers from "../pages/suppliers.js?v=supplierterms1";
 import * as purchaseOrders from "../pages/purchaseOrders.js?v=lotbase2";
 import * as receiving from "../pages/receiving.js?v=lotbase2";
 import * as inventory from "../pages/inventory.js?v=lotbase2";
