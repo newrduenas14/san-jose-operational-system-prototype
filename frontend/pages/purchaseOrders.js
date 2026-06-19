@@ -43,9 +43,6 @@ export async function render(ctx) {
 }
 
 function poForm(products, suppliers) {
-  const productOptions = products.map((product) => `
-    <option value="${escapeHtml(productOptionLabel(product))}"></option>
-  `).join("");
   return `
     <section class="panel po-builder">
       <div class="panel-header"><h2>Create Purchase Order</h2></div>
@@ -74,7 +71,6 @@ function poForm(products, suppliers) {
           </div>
         </div>
 
-        <datalist id="poProductOptions">${productOptions}</datalist>
         <div class="po-lines-heading">
           <h3>Products</h3>
           <button id="addPoLine" class="btn secondary" type="button">Add Product</button>
@@ -101,12 +97,12 @@ function setupPoBuilder(ctx, products, suppliers) {
   const productLookup = buildProductLookup(products);
   const supplierMap = new Map(suppliers.map((supplier) => [supplier.supplier_id, supplier]));
 
-  appendPoLine(container);
+  appendPoLine(container, products);
   updateExpectedDelivery(form, supplierMap);
   updatePoTotals(form);
 
   document.getElementById("addPoLine").addEventListener("click", () => {
-    appendPoLine(container);
+    appendPoLine(container, products);
     updateRemoveButtons(container);
   });
 
@@ -120,13 +116,7 @@ function setupPoBuilder(ctx, products, suppliers) {
 
   form.addEventListener("input", (event) => {
     const lineElement = event.target.closest(".po-line-item");
-    if (lineElement) {
-      if (event.target.matches("[data-product-search]")) {
-        const product = productLookup.get(normalizeLookup(event.target.value));
-        lineElement.querySelector("[data-product-id]").value = product?.product_id || "";
-      }
-      updatePoLine(lineElement);
-    }
+    if (lineElement) updatePoLine(lineElement);
     if (event.target.name === "tax_rate_percent") updatePoTotals(form);
   });
 
@@ -156,7 +146,7 @@ function setupPoBuilder(ctx, products, suppliers) {
   });
 }
 
-function appendPoLine(container) {
+function appendPoLine(container, products) {
   const lineId = `draft-po-line-${nextDraftLineId++}`;
   container.insertAdjacentHTML("beforeend", `
     <section class="po-line-item" data-draft-line-id="${lineId}">
@@ -167,8 +157,10 @@ function appendPoLine(container) {
       <div class="po-line-grid">
         <div class="field po-product-field">
           <label>Product Search</label>
-          <input data-product-search list="poProductOptions" placeholder="Name or Product ID" autocomplete="off" required>
-          <input data-product-id type="hidden">
+          <select data-product-search required>
+            <option value="">Select product</option>
+            ${products.map((product) => `<option value="${escapeHtml(product.product_id)}">${escapeHtml(productOptionLabel(product))}</option>`).join("")}
+          </select>
         </div>
         <div class="field"><label>Quantity Purchased</label><input data-line-field="qty_ordered" type="number" min="1" step="1" value="1" required></div>
         <div class="field">
@@ -236,7 +228,7 @@ function collectPurchaseOrder(form, productLookup) {
   const lines = Array.from(form.querySelectorAll(".po-line-item")).map((line, index) => {
     const lookupValue = line.querySelector("[data-product-search]").value;
     const product = productLookup.get(normalizeLookup(lookupValue));
-    const productId = line.querySelector("[data-product-id]").value || product?.product_id || "";
+    const productId = product?.product_id || "";
     const qty = numericLineValue(line, "qty_ordered");
     const unitWeight = numericLineValue(line, "case_weight_lbs");
     const unitCost = numericLineValue(line, "unit_cost");
