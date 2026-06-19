@@ -61,9 +61,7 @@ function poForm(products, suppliers) {
           <div class="field"><label>Purchase Date</label><input name="order_date" type="date" value="${todayValue()}" required></div>
           <div class="field">
             <label>Ship Via</label>
-            <select name="ship_via" required>
-              ${SHIP_METHODS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
-            </select>
+            <input name="ship_via" autocomplete="off" required>
           </div>
           <div class="field"><label>Expected Delivery</label><input name="expected_delivery_date" type="date" readonly></div>
           <div class="field">
@@ -272,21 +270,21 @@ function setupPurchaseOrderActions(ctx) {
   document.querySelectorAll("[data-po-action]").forEach((button) => {
     button.addEventListener("click", async () => {
       const { poId, poAction } = button.dataset;
-      if (poAction === "print") {
-        const printWindow = window.open("", "_blank");
-        if (!printWindow) {
-          notice("Pop-up blocked. Allow pop-ups to view the purchase order.");
+      if (["print", "labels"].includes(poAction)) {
+        const documentWindow = window.open("", "_blank");
+        if (!documentWindow) {
+          notice("Pop-up blocked. Allow pop-ups to open purchase order documents.");
           return;
         }
         try {
-          printWindow.document.write("<p>Preparing purchase order...</p>");
+          documentWindow.document.write("<p>Preparing purchase order...</p>");
           const detail = await getPurchaseOrderDetail(poId);
-          printWindow.document.open();
-          printWindow.document.write(printablePurchaseOrderHtml(detail));
-          printWindow.document.close();
-          printWindow.focus();
+          documentWindow.document.open();
+          documentWindow.document.write(poAction === "labels" ? qrLabelSheetHtml(detail) : printablePurchaseOrderHtml(detail));
+          documentWindow.document.close();
+          documentWindow.focus();
         } catch (error) {
-          printWindow.close();
+          documentWindow.close();
           notice(error.message);
         }
         return;
@@ -310,6 +308,7 @@ function actionButtons(ctx, row) {
   return `
     <div class="actions po-actions">
       <button class="btn secondary" data-po-action="print" data-po-id="${escapeHtml(row.po_id)}" type="button">View / Print</button>
+      <button class="btn secondary" data-po-action="labels" data-po-id="${escapeHtml(row.po_id)}" type="button">QR Labels</button>
       ${canMarkSent ? `<button class="btn" data-po-action="markSent" data-po-id="${escapeHtml(row.po_id)}" type="button">Mark Sent</button>` : ""}
     </div>
   `;
@@ -394,6 +393,144 @@ function printablePurchaseOrderHtml(detail) {
   `;
 }
 
+function qrLabelSheetHtml(detail) {
+  if (!detail) throw new Error("Purchase order was not found.");
+  const labels = buildPackageLabels(detail);
+  const configs = labels.map((label) => ({
+    text: label.qrValue,
+    filename: label.filename,
+    size: 600,
+    margin: 2,
+    format: "png",
+    ecLevel: "M"
+  }));
+  const configJson = JSON.stringify(configs).replaceAll("<", "\\u003c");
+  return `
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <title>${escapeHtml(detail.po.po_id)} QR Labels</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { background: #f4f7f4; color: #17211b; font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+          .toolbar { align-items: center; background: white; border-bottom: 1px solid #d8e1da; display: flex; gap: 10px; justify-content: space-between; margin: -20px -20px 20px; padding: 14px 20px; position: sticky; top: 0; z-index: 2; }
+          .toolbar-actions { display: flex; gap: 8px; }
+          button { background: #1d6f42; border: 0; border-radius: 6px; color: white; cursor: pointer; font-weight: 700; padding: 10px 14px; }
+          button.secondary { background: #e7eee9; color: #17211b; }
+          button:disabled { cursor: wait; opacity: 0.55; }
+          .labels { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+          .label { background: white; border: 1px solid #17211b; break-inside: avoid; display: grid; min-height: 5.5in; padding: 0.22in; page-break-inside: avoid; }
+          .label-head { border-bottom: 2px solid #17211b; padding-bottom: 8px; }
+          .label-head strong { display: block; font-size: 20px; }
+          .label-head span { color: #607064; font-size: 13px; }
+          .qr { align-self: center; display: block; height: 2.7in; justify-self: center; width: 2.7in; }
+          .label-details { display: grid; gap: 5px; grid-template-columns: 1fr 1fr; }
+          .label-details span { color: #607064; display: block; font-size: 11px; font-weight: 700; }
+          .label-details strong { display: block; font-size: 14px; margin-top: 2px; }
+          .package-number { border-top: 1px solid #d8e1da; font-size: 16px; font-weight: 700; margin-top: 8px; padding-top: 8px; text-align: center; }
+          @page { size: 4in 6in; margin: 0.2in; }
+          @media print {
+            body { background: white; padding: 0; }
+            .toolbar { display: none; }
+            .labels { display: block; }
+            .label { border: 0; height: 5.6in; margin: 0; min-height: 0; page-break-after: always; width: 3.6in; }
+          }
+        </style>
+      </head>
+      <body>
+        <header class="toolbar">
+          <strong>${escapeHtml(detail.po.po_id)} - ${labels.length} QR Label${labels.length === 1 ? "" : "s"}</strong>
+          <div class="toolbar-actions">
+            <button class="secondary" type="button" onclick="window.print()">Print All</button>
+            <button id="downloadZip" type="button" onclick="downloadQrZip(this)">Download ZIP</button>
+          </div>
+        </header>
+        <main class="labels">
+          ${labels.map((label) => `
+            <article class="label">
+              <div class="label-head">
+                <strong>${escapeHtml(label.productName)}</strong>
+                <span>${escapeHtml(label.productId)}</span>
+              </div>
+              <img class="qr" alt="QR label ${label.packageNumber} for ${escapeHtml(label.productName)}" src="${qrImageUrl(label.qrValue, 600)}">
+              <div>
+                <div class="label-details">
+                  <div><span>Purchase Order</span><strong>${escapeHtml(label.poId)}</strong></div>
+                  <div><span>PO Line</span><strong>${escapeHtml(label.poLineId)}</strong></div>
+                  <div><span>Pack</span><strong>${escapeHtml(label.unitType)} x ${escapeHtml(formatNumber(label.unitWeight))} LB</strong></div>
+                  <div><span>Supplier Lot</span><strong>${escapeHtml(label.supplierLot || "PENDING")}</strong></div>
+                </div>
+                <div class="package-number">Package ${label.packageNumber} of ${label.packageCount}</div>
+              </div>
+            </article>
+          `).join("")}
+        </main>
+        <script id="qr-configs" type="application/json">${configJson}</script>
+        <script>
+          async function downloadQrZip(button) {
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = "Preparing ZIP...";
+            try {
+              const qrCodes = JSON.parse(document.getElementById("qr-configs").textContent);
+              if (qrCodes.length > 1000) throw new Error("A ZIP can contain up to 1,000 QR labels.");
+              const response = await fetch("https://quickchart.io/qr/batch", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(qrCodes)
+              });
+              if (!response.ok) throw new Error("Could not generate the QR ZIP.");
+              const blob = await response.blob();
+              const link = document.createElement("a");
+              link.href = URL.createObjectURL(blob);
+              link.download = ${JSON.stringify(`${detail.po.po_id}-qr-labels.zip`)};
+              document.body.appendChild(link);
+              link.click();
+              link.remove();
+              URL.revokeObjectURL(link.href);
+            } catch (error) {
+              alert(error.message);
+            } finally {
+              button.disabled = false;
+              button.textContent = originalText;
+            }
+          }
+        </script>
+      </body>
+    </html>
+  `;
+}
+
+function buildPackageLabels({ po, lines }) {
+  return lines.flatMap((line) => {
+    const packageCount = Math.max(1, Math.round(Number(line.qty_ordered || 1)));
+    const baseQr = JSON.parse(qrValueForLine(po, line));
+    return Array.from({ length: packageCount }, (_value, index) => {
+      const packageNumber = index + 1;
+      const qrValue = JSON.stringify({
+        ...baseQr,
+        qty: 1,
+        package_number: packageNumber,
+        package_count: packageCount
+      });
+      return {
+        poId: po.po_id,
+        poLineId: line.po_line_id,
+        productId: line.product_id,
+        productName: line.product?.product_name || line.product_id,
+        unitType: line.unit_type,
+        unitWeight: line.case_weight_lbs || line.units_per_purchase_unit,
+        supplierLot: line.supplier_expected_lot_number || "",
+        packageNumber,
+        packageCount,
+        qrValue,
+        filename: `${safeFilename(po.po_id)}-${safeFilename(line.product_id)}-${String(packageNumber).padStart(4, "0")}-of-${String(packageCount).padStart(4, "0")}`
+      };
+    });
+  });
+}
+
 function buildProductLookup(products) {
   const lookup = new Map();
   const nameCounts = products.reduce((counts, product) => {
@@ -431,7 +568,14 @@ function isTrue(value) {
 }
 
 function qrValueForLine(po, line) {
-  if (line.qr_value) return line.qr_value;
+  if (line.qr_value) {
+    try {
+      const parsed = JSON.parse(line.qr_value);
+      if (parsed?.type === "PO_LINE") return line.qr_value;
+    } catch (_error) {
+      // Rebuild legacy pipe-delimited QR values as structured PO-line data.
+    }
+  }
   return JSON.stringify({
     v: 1,
     type: "PO_LINE",
@@ -452,8 +596,12 @@ function displayShipVia(value) {
   return SHIP_METHODS.find(([key]) => key === value)?.[1] || String(value || "").replaceAll("_", " ");
 }
 
-function qrImageUrl(value) {
-  return `https://quickchart.io/qr?size=220&margin=2&text=${encodeURIComponent(value || "")}`;
+function qrImageUrl(value, size = 220) {
+  return `https://quickchart.io/qr?size=${size}&margin=2&text=${encodeURIComponent(value || "")}`;
+}
+
+function safeFilename(value) {
+  return String(value || "QR").replace(/[^A-Z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || "QR";
 }
 
 function todayValue() {
