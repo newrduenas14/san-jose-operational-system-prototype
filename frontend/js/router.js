@@ -1,4 +1,4 @@
-import { allowedPages } from "./permissions.js?v=parties1";
+import { allowedPages } from "./permissions.js?v=orders1";
 
 let currentPage = "dashboard";
 let routes = {};
@@ -25,8 +25,8 @@ export function navigate(page) {
 
 export function renderNavigation(user) {
   const nav = document.getElementById("nav");
-  nav.innerHTML = allowedPages(user).map((page) => `
-    <button type="button" data-route="${page.id}" class="${page.id === currentPage ? "active" : ""}">
+  nav.innerHTML = allowedPages(user).filter((page) => !page.hidden).map((page) => `
+    <button type="button" data-route="${page.id}" class="${isActiveNavigationPage(page.id) ? "active" : ""}">
       ${page.label}
     </button>
   `).join("");
@@ -36,6 +36,11 @@ export function renderNavigation(user) {
       navigate(button.dataset.route);
     });
   });
+}
+
+function isActiveNavigationPage(pageId) {
+  return pageId === currentPage
+    || (pageId === "orders" && ["purchaseOrders", "salesOrders"].includes(currentPage));
 }
 
 export async function renderRoute() {

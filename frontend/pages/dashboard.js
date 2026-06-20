@@ -1,4 +1,4 @@
-import { getDashboard } from "../js/api-smooth1.js?v=admin-dashboard1";
+import { getDashboard } from "../js/api-smooth1.js?v=orders1";
 import { can } from "../js/permissions.js";
 import { escapeHtml, table } from "../js/utils.js";
 
@@ -17,11 +17,13 @@ export async function render(ctx) {
         ${metricCard("Low Stock Products", number(metrics.lowStockCount), `${number(metrics.usageHistoryNeededCount)} still need usage history`, "attention")}
         ${metricCard("Expiring Within 30 Days", number(metrics.expiringLotCount), `${number(metrics.expiringProductCount)} products | ${money(metrics.expiringInventoryValue)} at risk`, "attention")}
         ${metricCard("Open Purchase Orders", number(metrics.openPoCount), `${money(metrics.openPoValue)} currently open`)}
-        ${placeholderCard("Open Sales Orders", "Sales Orders not added yet")}
+        ${metricCard("Open Sales Orders", number(metrics.openSoCount), `${money(metrics.openSoValue)} currently open`)}
         ${placeholderCard("Accounts Payable", "Requires vendor invoices and payments")}
         ${placeholderCard("Accounts Receivable", "Requires customer invoices and payments")}
-        ${placeholderCard("Weekly Sales", "Requires completed Sales Orders")}
-        ${placeholderCard("Top Products by Profit Margin", "Requires selling prices and sales history")}
+        ${metricCard("Weekly Sales", money(metrics.weeklySales), "Shipped Sales Orders from the last 7 days")}
+        ${metrics.topProfitProduct
+          ? metricCard("Top Product by Gross Profit", metrics.topProfitProduct.product_name, `${money(metrics.topProfitProduct.gross_profit)} profit | ${number(metrics.topProfitProduct.gross_margin_percent)}% margin`)
+          : placeholderCard("Top Product by Gross Profit", "No shipped Sales Orders yet")}
         ${capacityCard(metrics)}
       </section>
 

@@ -26,11 +26,9 @@ The prototype follows the workbook database blueprint.
 
 ## Sales And Picking
 
-- `SALES_ORDERS`
-- `SALES_ORDER_LINES`
-- `PICK_TASKS`
-
-These are documented for the later workflow but intentionally light in this first prototype.
+- `SALES_ORDERS`: customer order headers with channel, requested fulfillment date, ship method, payment terms, tax, totals, estimated gross profit, and workflow status.
+- `SALES_ORDER_LINES`: inventory-backed order allocations by product, internal lot, location, sales unit, quantity, price, cost, expiration, and FEFO status.
+- `PICK_TASKS`: soft inventory reservations created when a Sales Order is confirmed. Picking changes task and line status but does not post an inventory deduction yet.
 
 ## Amazon Future API
 

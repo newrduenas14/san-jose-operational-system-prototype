@@ -24,6 +24,7 @@
   "suppliers": [
     {
       "supplier_id": "SUP-001",
+      "party_type": "VENDOR",
       "supplier_name": "Example Supplier",
       "contact_name": "Supplier Contact",
       "email": "supplier@example.com",
@@ -34,6 +35,19 @@
       "lead_time_expected_days": 10,
       "is_active": true,
       "notes": "Example supplier from spreadsheet."
+    },
+    {
+      "supplier_id": "CUST-000001",
+      "party_type": "CUSTOMER",
+      "supplier_name": "Example Wholesale Customer",
+      "contact_name": "Customer Contact",
+      "email": "customer@example.com",
+      "phone": "555-000-0001",
+      "address": "Customer address",
+      "payment_terms": "Net 30",
+      "default_currency": "USD",
+      "is_active": true,
+      "notes": "Example customer for Sales Orders."
     }
   ],
   "locations": [

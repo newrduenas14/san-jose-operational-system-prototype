@@ -12,6 +12,8 @@ const PERMISSIONS = {
     "suppliers:create",
     "purchaseOrders:create",
     "purchaseOrders:actions",
+    "salesOrders:create",
+    "salesOrders:actions",
     "receiving:create",
     "inventory:view",
     "inventory:adjust",
@@ -22,12 +24,15 @@ const PERMISSIONS = {
     "suppliers:create",
     "purchaseOrders:create",
     "purchaseOrders:actions",
+    "salesOrders:create",
+    "salesOrders:actions",
     "receiving:create",
     "inventory:view",
     "inventory:adjust",
     "scanner:lookup"
   ],
   OPERATOR: [
+    "salesOrders:actions",
     "receiving:create",
     "inventory:view",
     "inventory:adjust",
@@ -64,6 +69,10 @@ function handleApiRequest_(action, payloadText, callback) {
       generatePurchaseOrderTemplate,
       createPurchaseOrder,
       purchaseOrderAction,
+      listSalesOrders,
+      getSalesOrderDetail,
+      createSalesOrder,
+      salesOrderAction,
       receiveProduct,
       recordInventoryMovement,
       inventorySnapshot,
@@ -92,6 +101,8 @@ function getDashboard() {
   const suppliers = readTable_("SUPPLIERS");
   const purchaseOrders = readTable_("PURCHASE_ORDERS");
   const purchaseOrderLines = readTable_("PURCHASE_ORDER_LINES");
+  const salesOrders = readTable_("SALES_ORDERS");
+  const salesOrderLines = readTable_("SALES_ORDER_LINES");
   const lots = readTable_("LOTS");
   const movements = readTable_("INVENTORY_MOVEMENTS");
   const locations = readTable_("LOCATIONS");
@@ -107,7 +118,7 @@ function getDashboard() {
     lotCount: lots.length,
     movementCount: movements.length,
     pendingAmazonPackages: readTable_("AMAZON_PACKAGES").filter((pkg) => !pkg.matched_amazon_order_id).length,
-    ...buildDashboardMetrics_(products, purchaseOrders, purchaseOrderLines, lots, locations, snapshots, planning)
+    ...buildDashboardMetrics_(products, purchaseOrders, purchaseOrderLines, salesOrders, salesOrderLines, lots, locations, snapshots, planning)
   };
 }
 
@@ -420,6 +431,364 @@ function purchaseOrderAction(payload) {
   throw new Error("PO not found.");
 }
 
+function listSalesOrders() {
+  const parties = readTable_("SUPPLIERS");
+  const products = readTable_("PRODUCTS");
+  const lines = readTable_("SALES_ORDER_LINES");
+  return readTable_("SALES_ORDERS").map((order) => {
+    const orderLines = lines.filter((line) => line.sales_order_id === order.sales_order_id);
+    return {
+      ...order,
+      customer: parties.find((party) => party.supplier_id === order.customer_id)
+        || parties.find((party) => party.supplier_name === order.customer_name)
+        || null,
+      line_count: orderLines.length,
+      product_names: unique_(orderLines.map((line) => {
+        const product = products.find((item) => item.product_id === line.product_id);
+        return product ? product.product_name : line.product_id;
+      })).join(", ")
+    };
+  }).sort((a, b) => new Date(b.order_date || 0) - new Date(a.order_date || 0));
+}
+
+function getSalesOrderDetail(payload) {
+  payload = payload || {};
+  const salesOrderId = payload.salesOrderId || payload.sales_order_id;
+  const parties = readTable_("SUPPLIERS");
+  const products = readTable_("PRODUCTS");
+  const lots = readTable_("LOTS");
+  const locations = readTable_("LOCATIONS");
+  const order = readTable_("SALES_ORDERS").find((item) => item.sales_order_id === salesOrderId);
+  if (!order) return null;
+  const lines = readTable_("SALES_ORDER_LINES")
+    .filter((line) => line.sales_order_id === salesOrderId)
+    .map((line) => ({
+      ...line,
+      product: products.find((product) => product.product_id === line.product_id) || null,
+      lot: lots.find((lot) => lot.internal_lot_id === line.preferred_internal_lot_id) || null,
+      location: locations.find((location) => location.location_id === line.preferred_location_id) || null
+    }));
+  return {
+    order: {
+      ...order,
+      customer: parties.find((party) => party.supplier_id === order.customer_id)
+        || parties.find((party) => party.supplier_name === order.customer_name)
+        || null
+    },
+    lines: lines,
+    pickTasks: readTable_("PICK_TASKS").filter((task) => task.sales_order_id === salesOrderId)
+  };
+}
+
+function createSalesOrder(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "salesOrders:create");
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const input = payload.input || {};
+    const parties = readTable_("SUPPLIERS");
+    const customer = parties.find((party) => party.supplier_id === input.customer_id);
+    if (!customer || normalizePartyType_(customer.party_type) !== "CUSTOMER") {
+      throw new Error("Select a valid customer.");
+    }
+    const inputLines = Array.isArray(input.lines) ? input.lines : [];
+    if (!inputLines.length) throw new Error("Add at least one inventory item.");
+    const products = readTable_("PRODUCTS");
+    const lots = readTable_("LOTS");
+    const purchaseOrderLines = readTable_("PURCHASE_ORDER_LINES");
+    const snapshot = inventorySnapshot();
+    const allocatedByInventory = {};
+    const validatedLines = inputLines.map((line, index) => validateSalesOrderLine_(
+      line,
+      index,
+      products,
+      lots,
+      purchaseOrderLines,
+      snapshot,
+      allocatedByInventory,
+      input.requested_delivery_date
+    ));
+
+    ensureTableColumns_("SALES_ORDERS", [
+      "customer_id", "ship_method", "payment_terms", "tax_enabled", "tax_rate",
+      "estimated_gross_profit", "estimated_gross_margin_percent", "confirmed_at", "picked_at", "shipped_at"
+    ]);
+    ensureTableColumns_("SALES_ORDER_LINES", [
+      "unit_weight_lbs", "inventory_qty_required", "inventory_unit_type", "unit_cost",
+      "estimated_gross_profit", "expiration_date", "fefo_status"
+    ]);
+
+    const subtotal = round_(validatedLines.reduce((sum, line) => sum + line.line_total, 0), 2);
+    const estimatedGrossProfit = round_(validatedLines.reduce((sum, line) => sum + line.estimated_gross_profit, 0), 2);
+    const taxEnabled = input.tax_enabled === true || String(input.tax_enabled).toUpperCase() === "TRUE";
+    const taxRate = taxEnabled ? Math.max(0, Number(input.tax_rate_percent || 6.25) / 100) : 0;
+    const taxAmount = round_(subtotal * taxRate, 2);
+    const salesOrderId = nextId_("SALES_ORDERS", "sales_order_id", "SO");
+    const firstLineId = nextId_("SALES_ORDER_LINES", "sales_order_line_id", "SOL");
+    const firstLineNumber = Number(String(firstLineId).match(/(\d+)$/)[1]);
+    const order = {
+      sales_order_id: salesOrderId,
+      channel: String(input.sales_channel || "OTHER").toUpperCase(),
+      order_source: "MANUAL",
+      customer_id: customer.supplier_id,
+      customer_name: customer.supplier_name,
+      customer_email: customer.email || "",
+      customer_phone: customer.phone || "",
+      amazon_order_id: "",
+      order_date: dateFromInput_(input.order_date),
+      ship_by_date: input.requested_delivery_date ? dateFromInput_(input.requested_delivery_date) : "",
+      ship_method: String(input.ship_method || "OTHER").toUpperCase(),
+      payment_terms: input.payment_terms || customer.payment_terms || "Net 30",
+      status: "DRAFT",
+      currency: customer.default_currency || "USD",
+      subtotal_amount: subtotal,
+      tax_enabled: taxEnabled,
+      tax_rate: taxRate,
+      tax_amount: taxAmount,
+      shipping_amount: 0,
+      total_amount: round_(subtotal + taxAmount, 2),
+      estimated_gross_profit: estimatedGrossProfit,
+      estimated_gross_margin_percent: subtotal > 0 ? round_(estimatedGrossProfit / subtotal * 100, 2) : 0,
+      invoice_status: "NOT_INVOICED",
+      created_by: user.user_id || user.role || "UNKNOWN",
+      created_at: new Date(),
+      updated_at: new Date(),
+      notes: input.notes || ""
+    };
+    const lines = validatedLines.map((line, index) => ({
+      sales_order_line_id: `SOL-${String(firstLineNumber + index).padStart(6, "0")}`,
+      sales_order_id: salesOrderId,
+      channel: order.channel,
+      amazon_order_item_id: "",
+      product_id: line.product_id,
+      amazon_sku: "",
+      wholesale_sku: "",
+      qty_ordered: line.qty_ordered,
+      qty_picked: 0,
+      qty_remaining: line.qty_ordered,
+      unit_type: line.unit_type,
+      unit_weight_lbs: line.unit_weight_lbs,
+      inventory_qty_required: line.inventory_qty_required,
+      inventory_unit_type: line.inventory_unit_type,
+      unit_price: line.unit_price,
+      unit_cost: line.unit_cost,
+      currency: order.currency,
+      line_total: line.line_total,
+      estimated_gross_profit: line.estimated_gross_profit,
+      preferred_internal_lot_id: line.internal_lot_id,
+      preferred_location_id: line.location_id,
+      expiration_date: line.expiration_date,
+      fefo_status: line.fefo_status,
+      line_status: "DRAFT",
+      notes: line.notes || ""
+    }));
+    appendRecord_("SALES_ORDERS", order);
+    lines.forEach((line) => appendRecord_("SALES_ORDER_LINES", line));
+    return { ...order, lines: lines };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function salesOrderAction(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "salesOrders:actions");
+  const salesOrderId = payload.salesOrderId || payload.sales_order_id;
+  const action = String(payload.action || "").toUpperCase();
+  enforceSalesOrderActionRole_(user, action);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    ensureTableColumns_("SALES_ORDERS", ["confirmed_at", "picked_at", "shipped_at", "updated_at"]);
+    ensureTableColumns_("SALES_ORDER_LINES", ["inventory_qty_required", "line_status"]);
+    const detail = getSalesOrderDetail({ salesOrderId: salesOrderId });
+    if (!detail) throw new Error("Sales order not found.");
+    const order = detail.order;
+    const lines = detail.lines;
+
+    if (action === "CONFIRM") {
+      if (String(order.status).toUpperCase() !== "DRAFT") throw new Error("Only draft Sales Orders can be confirmed.");
+      const snapshot = inventorySnapshot();
+      const requestedByInventory = {};
+      lines.forEach((line, index) => validateExistingSalesAllocation_(line, index, snapshot, requestedByInventory));
+      ensureTableColumns_("PICK_TASKS", ["qty_to_pick_base", "reservation_status"]);
+      const firstTaskId = nextId_("PICK_TASKS", "pick_task_id", "PICK");
+      const firstTaskNumber = Number(String(firstTaskId).match(/(\d+)$/)[1]);
+      lines.forEach((line, index) => {
+        appendRecord_("PICK_TASKS", {
+          pick_task_id: `PICK-${String(firstTaskNumber + index).padStart(6, "0")}`,
+          sales_order_id: salesOrderId,
+          sales_order_line_id: line.sales_order_line_id,
+          channel: order.channel,
+          task_date: new Date(),
+          priority: "NORMAL",
+          product_id: line.product_id,
+          recommended_internal_lot_id: line.preferred_internal_lot_id,
+          recommended_location_id: line.preferred_location_id,
+          qty_to_pick: line.qty_ordered,
+          qty_to_pick_base: line.inventory_qty_required,
+          qty_picked: 0,
+          unit_type: line.unit_type,
+          assigned_to: "",
+          pick_status: "OPEN",
+          reservation_status: "RESERVED",
+          picked_at: "",
+          scan_code: "",
+          device_id: "",
+          exception_code: "",
+          notes: line.fefo_status === "RECOMMENDED" ? "FEFO allocation." : "Manual lot allocation."
+        });
+        updateTableRecord_("SALES_ORDER_LINES", "sales_order_line_id", line.sales_order_line_id, { line_status: "CONFIRMED" });
+      });
+      updateTableRecord_("SALES_ORDERS", "sales_order_id", salesOrderId, {
+        status: "CONFIRMED", confirmed_at: new Date(), updated_at: new Date()
+      });
+    } else if (action === "PICKED") {
+      if (String(order.status).toUpperCase() !== "CONFIRMED") throw new Error("Only confirmed Sales Orders can be marked picked.");
+      lines.forEach((line) => updateTableRecord_("SALES_ORDER_LINES", "sales_order_line_id", line.sales_order_line_id, {
+        line_status: "PICKED", qty_picked: line.qty_ordered, qty_remaining: 0
+      }));
+      detail.pickTasks.forEach((task) => updateTableRecord_("PICK_TASKS", "pick_task_id", task.pick_task_id, {
+        pick_status: "PICKED", qty_picked: task.qty_to_pick, picked_at: new Date()
+      }));
+      updateTableRecord_("SALES_ORDERS", "sales_order_id", salesOrderId, {
+        status: "PICKED", picked_at: new Date(), updated_at: new Date()
+      });
+    } else if (action === "SHIPPED") {
+      if (String(order.status).toUpperCase() !== "PICKED") throw new Error("Only picked Sales Orders can be marked shipped.");
+      detail.pickTasks.forEach((task) => updateTableRecord_("PICK_TASKS", "pick_task_id", task.pick_task_id, {
+        pick_status: "SHIPPED"
+      }));
+      updateTableRecord_("SALES_ORDERS", "sales_order_id", salesOrderId, {
+        status: "SHIPPED", shipped_at: new Date(), updated_at: new Date()
+      });
+    } else {
+      throw new Error("Unknown Sales Order action.");
+    }
+    return getSalesOrderDetail({ salesOrderId: salesOrderId });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function validateSalesOrderLine_(input, index, products, lots, purchaseOrderLines, snapshot, allocatedByInventory, requestedDeliveryDate) {
+  const lineNumber = index + 1;
+  const product = products.find((item) => item.product_id === input.product_id);
+  const lot = lots.find((item) => item.internal_lot_id === input.internal_lot_id);
+  const inventoryRow = snapshot.find((row) =>
+    row.product_id === input.product_id
+    && row.internal_lot_id === input.internal_lot_id
+    && row.location_id === input.location_id
+  );
+  if (!product || !lot || !inventoryRow) throw new Error(`Select valid inventory on line ${lineNumber}.`);
+  if (["ACTIVE", "AVAILABLE"].indexOf(String(lot.status || "ACTIVE").toUpperCase()) < 0) {
+    throw new Error(`The selected lot is not sellable on line ${lineNumber}.`);
+  }
+  const expiration = effectiveExpirationDate_(lot, product);
+  const today = startOfDay_(new Date());
+  if (expiration && expiration < today) throw new Error(`The selected lot is expired on line ${lineNumber}.`);
+  const requestedDate = startOfDay_(requestedDeliveryDate);
+  if (expiration && requestedDate && expiration < requestedDate) {
+    throw new Error(`The selected lot expires before the requested delivery date on line ${lineNumber}.`);
+  }
+
+  const qtyOrdered = Number(input.qty_ordered || 0);
+  const salesUnit = String(input.unit_type || "").trim().toUpperCase();
+  const unitWeight = Number(input.unit_weight_lbs || (salesUnit === "LB" ? 1 : 0));
+  const unitPrice = Number(input.unit_price || 0);
+  const inventoryUnit = String(inventoryRow.unit_type || lot.unit_type || "").toUpperCase();
+  if (!isFinite(qtyOrdered) || qtyOrdered <= 0) throw new Error(`Quantity sold must be greater than zero on line ${lineNumber}.`);
+  if (!salesUnit) throw new Error(`Sales unit is required on line ${lineNumber}.`);
+  if (!isFinite(unitWeight) || unitWeight <= 0) throw new Error(`Unit weight must be greater than zero on line ${lineNumber}.`);
+  if (!isFinite(unitPrice) || unitPrice < 0) throw new Error(`Unit price cannot be negative on line ${lineNumber}.`);
+  if (inventoryUnit !== salesUnit && inventoryUnit !== "LB") {
+    throw new Error(`The selected inventory cannot be converted from ${inventoryUnit} to ${salesUnit} on line ${lineNumber}.`);
+  }
+
+  const inventoryQtyRequired = round_(inventoryUnit === salesUnit ? qtyOrdered : qtyOrdered * unitWeight, 2);
+  const key = salesInventoryKey_(input.product_id, input.internal_lot_id, input.location_id);
+  const combinedQty = Number(allocatedByInventory[key] || 0) + inventoryQtyRequired;
+  const availableQty = Number(inventoryRow.available_qty !== undefined ? inventoryRow.available_qty : inventoryRow.qty || 0);
+  if (combinedQty > availableQty + 0.0001) {
+    throw new Error(`Line ${lineNumber} exceeds the available quantity for this lot and location.`);
+  }
+  allocatedByInventory[key] = combinedQty;
+
+  const inventoryUnitCost = dashboardUnitCost_(lot, purchaseOrderLines);
+  const unitCost = round_(inventoryUnitCost * inventoryQtyRequired / qtyOrdered, 4);
+  const lineTotal = round_(qtyOrdered * unitPrice, 2);
+  return {
+    product_id: product.product_id,
+    internal_lot_id: lot.internal_lot_id,
+    location_id: input.location_id,
+    qty_ordered: qtyOrdered,
+    unit_type: salesUnit,
+    unit_weight_lbs: unitWeight,
+    inventory_qty_required: inventoryQtyRequired,
+    inventory_unit_type: inventoryUnit,
+    unit_price: unitPrice,
+    unit_cost: unitCost,
+    line_total: lineTotal,
+    estimated_gross_profit: round_(qtyOrdered * (unitPrice - unitCost), 2),
+    expiration_date: expiration ? dateKey_(expiration) : "",
+    fefo_status: isFefoChoice_(inventoryRow, snapshot, lots, products, unitWeight) ? "RECOMMENDED" : "OVERRIDE",
+    notes: String(input.notes || "")
+  };
+}
+
+function validateExistingSalesAllocation_(line, index, snapshot, requestedByInventory) {
+  const inventoryRow = snapshot.find((row) =>
+    row.product_id === line.product_id
+    && row.internal_lot_id === line.preferred_internal_lot_id
+    && row.location_id === line.preferred_location_id
+  );
+  if (!inventoryRow) throw new Error(`Inventory allocation is missing on line ${index + 1}.`);
+  const key = salesInventoryKey_(line.product_id, line.preferred_internal_lot_id, line.preferred_location_id);
+  const requested = Number(line.inventory_qty_required || line.qty_ordered || 0);
+  const combined = Number(requestedByInventory[key] || 0) + requested;
+  const available = Number(inventoryRow.available_qty !== undefined ? inventoryRow.available_qty : inventoryRow.qty || 0);
+  if (combined > available + 0.0001) {
+    throw new Error(`Inventory is no longer available for line ${index + 1}. Choose another lot or quantity.`);
+  }
+  requestedByInventory[key] = combined;
+}
+
+function isFefoChoice_(selectedRow, snapshot, lots, products, unitWeight) {
+  const selectedLot = lots.find((lot) => lot.internal_lot_id === selectedRow.internal_lot_id) || {};
+  const product = products.find((item) => item.product_id === selectedRow.product_id) || {};
+  const selectedExpiration = effectiveExpirationDate_(selectedLot, product);
+  const expirations = snapshot.filter((row) => {
+    if (row.product_id !== selectedRow.product_id || Number(row.available_qty || row.qty || 0) <= 0) return false;
+    const lot = lots.find((item) => item.internal_lot_id === row.internal_lot_id) || {};
+    return ["ACTIVE", "AVAILABLE"].indexOf(String(lot.status || "ACTIVE").toUpperCase()) >= 0
+      && Math.abs(salesLotUnitWeight_(lot) - unitWeight) < 0.001;
+  }).map((row) => {
+    const lot = lots.find((item) => item.internal_lot_id === row.internal_lot_id) || {};
+    return effectiveExpirationDate_(lot, product);
+  }).filter((date) => date).sort((a, b) => a - b);
+  return !expirations.length || (selectedExpiration && selectedExpiration.getTime() === expirations[0].getTime());
+}
+
+function salesLotUnitWeight_(lot) {
+  const originalQty = Number(lot.original_qty || 0);
+  const purchaseQty = Number(lot.purchase_qty_received || 0);
+  return originalQty > 0 && purchaseQty > 0 ? round_(originalQty / purchaseQty, 4) : 1;
+}
+
+function salesInventoryKey_(productId, lotId, locationId) {
+  return [productId, lotId, locationId].join("|");
+}
+
+function enforceSalesOrderActionRole_(user, action) {
+  const role = String(user.role || "OPERATOR").toUpperCase();
+  if (role === "OPERATOR" && action !== "PICKED") {
+    throw new Error("Operators can only mark confirmed Sales Orders as picked.");
+  }
+}
+
 function receiveProduct(payload) {
   payload = payload || {};
   const user = payload.user || {};
@@ -672,6 +1041,7 @@ function inventorySnapshot() {
   const movements = readTable_("INVENTORY_MOVEMENTS");
   const products = readTable_("PRODUCTS");
   const lots = readTable_("LOTS");
+  const reservedByInventory = buildReservedInventory_();
   const grouped = {};
 
   movements.forEach((movement) => {
@@ -692,11 +1062,37 @@ function inventorySnapshot() {
     grouped[key].qty += qtyChange;
   });
 
-  return Object.keys(grouped).map((key) => ({
-    ...grouped[key],
-    product: products.find((row) => row.product_id === grouped[key].product_id) || null,
-    lot: lots.find((row) => row.internal_lot_id === grouped[key].internal_lot_id) || null
-  }));
+  return Object.keys(grouped).map((key) => {
+    const row = grouped[key];
+    const inventoryKey = salesInventoryKey_(row.product_id, row.internal_lot_id, row.location_id);
+    const reservedQty = Number(reservedByInventory[inventoryKey] || 0);
+    return {
+      ...row,
+      reserved_qty: round_(reservedQty, 2),
+      available_qty: round_(Math.max(0, Number(row.qty || 0) - reservedQty), 2),
+      product: products.find((product) => product.product_id === row.product_id) || null,
+      lot: lots.find((lot) => lot.internal_lot_id === row.internal_lot_id) || null
+    };
+  });
+}
+
+function buildReservedInventory_() {
+  const reserved = {};
+  const lines = readTable_("SALES_ORDER_LINES");
+  readTable_("PICK_TASKS").forEach((task) => {
+    const reservationStatus = String(task.reservation_status || "RESERVED").toUpperCase();
+    const pickStatus = String(task.pick_status || "OPEN").toUpperCase();
+    if (reservationStatus === "RELEASED" || ["CANCELLED", "RELEASED"].indexOf(pickStatus) >= 0) return;
+    const line = lines.find((item) => item.sales_order_line_id === task.sales_order_line_id) || {};
+    const productId = task.product_id || line.product_id;
+    const lotId = task.recommended_internal_lot_id || line.preferred_internal_lot_id;
+    const locationId = task.recommended_location_id || line.preferred_location_id;
+    if (!productId || !lotId || !locationId) return;
+    const qty = Number(task.qty_to_pick_base || line.inventory_qty_required || task.qty_to_pick || 0);
+    const key = salesInventoryKey_(productId, lotId, locationId);
+    reserved[key] = Number(reserved[key] || 0) + qty;
+  });
+  return reserved;
 }
 
 function getOperationalReports() {
@@ -893,6 +1289,21 @@ function readTable_(sheetName) {
 function appendRecord_(sheetName, record) {
   const meta = tableMeta_(sheetName);
   meta.sheet.appendRow(meta.headers.map((header) => record[header] ?? ""));
+}
+
+function updateTableRecord_(sheetName, idColumn, idValue, fields) {
+  const meta = tableMeta_(sheetName);
+  const idIndex = meta.headers.indexOf(idColumn);
+  if (idIndex < 0) throw new Error(`Missing ${idColumn} column in ${sheetName}.`);
+  for (let row = meta.headerRow + 1; row <= meta.sheet.getLastRow(); row++) {
+    if (meta.sheet.getRange(row, idIndex + 1).getValue() !== idValue) continue;
+    Object.keys(fields).forEach((field) => {
+      const columnIndex = meta.headers.indexOf(field);
+      if (columnIndex >= 0) meta.sheet.getRange(row, columnIndex + 1).setValue(fields[field]);
+    });
+    return;
+  }
+  throw new Error(`${idValue} was not found in ${sheetName}.`);
 }
 
 function ensureTableColumns_(sheetName, requiredHeaders) {
@@ -1204,7 +1615,7 @@ function buildInventorySnapshot_(products, lots, movements) {
     .filter((row) => Number(row.current_qty || 0) !== 0);
 }
 
-function buildDashboardMetrics_(products, purchaseOrders, purchaseOrderLines, lots, locations, snapshots, planning) {
+function buildDashboardMetrics_(products, purchaseOrders, purchaseOrderLines, salesOrders, salesOrderLines, lots, locations, snapshots, planning) {
   const positiveStock = snapshots.filter((row) => Number(row.current_qty || 0) > 0);
   const qtyByLot = {};
   positiveStock.forEach((row) => {
@@ -1260,6 +1671,33 @@ function buildDashboardMetrics_(products, purchaseOrders, purchaseOrderLines, lo
   });
   const occupiedLocationCount = Object.keys(occupiedLocationIds).length;
   const openOrders = purchaseOrders.filter(isOpenPurchaseOrder_);
+  const openSalesOrders = salesOrders.filter((order) => ["SHIPPED", "CANCELLED", "CLOSED"].indexOf(String(order.status || "").toUpperCase()) < 0);
+  const weekStart = new Date();
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - 6);
+  const shippedThisWeek = salesOrders.filter((order) => {
+    if (String(order.status || "").toUpperCase() !== "SHIPPED") return false;
+    const shippedDate = new Date(order.shipped_at || order.updated_at || order.order_date || 0);
+    return !isNaN(shippedDate.getTime()) && shippedDate >= weekStart;
+  });
+  const shippedIds = {};
+  shippedThisWeek.forEach((order) => { shippedIds[order.sales_order_id] = true; });
+  const profitByProduct = {};
+  salesOrderLines.filter((line) => shippedIds[line.sales_order_id]).forEach((line) => {
+    if (!profitByProduct[line.product_id]) profitByProduct[line.product_id] = { revenue: 0, profit: 0 };
+    profitByProduct[line.product_id].revenue += Number(line.line_total || 0);
+    profitByProduct[line.product_id].profit += Number(line.estimated_gross_profit || 0);
+  });
+  const topProfitProduct = Object.keys(profitByProduct).map((productId) => {
+    const totals = profitByProduct[productId];
+    const product = products.find((item) => item.product_id === productId) || {};
+    return {
+      product_id: productId,
+      product_name: product.product_name || productId,
+      gross_profit: round_(totals.profit, 2),
+      gross_margin_percent: totals.revenue > 0 ? round_(totals.profit / totals.revenue * 100, 1) : 0
+    };
+  }).sort((a, b) => b.gross_profit - a.gross_profit)[0] || null;
 
   return {
     totalInventoryValue: round_(totalInventoryValue, 2),
@@ -1271,6 +1709,10 @@ function buildDashboardMetrics_(products, purchaseOrders, purchaseOrderLines, lo
     expiringInventoryValue: round_(expiringLots.reduce((sum, row) => sum + Number(row.inventory_value || 0), 0), 2),
     expiringLots: expiringLots,
     openPoValue: round_(openOrders.reduce((sum, po) => sum + Number(po.total_amount || po.subtotal_amount || 0), 0), 2),
+    openSoCount: openSalesOrders.length,
+    openSoValue: round_(openSalesOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0), 2),
+    weeklySales: round_(shippedThisWeek.reduce((sum, order) => sum + Number(order.total_amount || 0), 0), 2),
+    topProfitProduct: topProfitProduct,
     warehouseOccupiedPositions: occupiedLocationCount,
     warehouseTotalPositions: activeLocations.length,
     warehouseCapacityPercent: activeLocations.length ? round_(occupiedLocationCount / activeLocations.length * 100, 1) : 0

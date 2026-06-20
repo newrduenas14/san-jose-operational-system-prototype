@@ -113,7 +113,7 @@ export function enableTableSorting(root = document) {
 
 export function status(value) {
   const text = escapeHtml(value || "UNKNOWN");
-  const cls = /active|available|approved|matched|ready|ok/i.test(text)
+  const cls = /active|available|approved|matched|ready|confirmed|picked|shipped|ok/i.test(text)
     ? "ok"
     : /pending|draft|ordered|partial/i.test(text)
       ? "warn"

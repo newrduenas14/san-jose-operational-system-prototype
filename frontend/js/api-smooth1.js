@@ -1,4 +1,4 @@
-import * as base from "./api.js?v=admin-dashboard1";
+import * as base from "./api.js?v=orders1";
 
 const READ_CACHE_TTL_MS = 45000;
 const readCache = new Map();
@@ -13,6 +13,7 @@ export function warmOperationalCache() {
     () => listProducts(),
     () => listSuppliers(),
     () => listPurchaseOrders(),
+    () => listSalesOrders(),
     () => inventorySnapshot()
   ].forEach((load, index) => {
     window.setTimeout(() => load().catch(() => {}), index * 350);
@@ -29,9 +30,11 @@ export const listProducts = () => cachedRead("listProducts", [], base.listProduc
 export const listSuppliers = () => cachedRead("listSuppliers", [], base.listSuppliers);
 export const listLocations = () => cachedRead("listLocations", [], base.listLocations);
 export const listPurchaseOrders = () => cachedRead("listPurchaseOrders", [], base.listPurchaseOrders);
+export const listSalesOrders = () => cachedRead("listSalesOrders", [], base.listSalesOrders);
 export const inventorySnapshot = () => cachedRead("inventorySnapshot", [], base.inventorySnapshot);
 export const getOperationalReports = () => cachedRead("getOperationalReports", [], base.getOperationalReports);
 export const getPurchaseOrderDetail = (poId) => cachedRead("getPurchaseOrderDetail", [poId], () => base.getPurchaseOrderDetail(poId));
+export const getSalesOrderDetail = (salesOrderId) => cachedRead("getSalesOrderDetail", [salesOrderId], () => base.getSalesOrderDetail(salesOrderId));
 
 export async function createProduct(user, input) {
   return mutate(() => base.createProduct(user, input));
@@ -51,6 +54,14 @@ export async function createPurchaseOrder(user, input) {
 
 export async function purchaseOrderAction(user, poId, action) {
   return mutate(() => base.purchaseOrderAction(user, poId, action));
+}
+
+export async function createSalesOrder(user, input) {
+  return mutate(() => base.createSalesOrder(user, input));
+}
+
+export async function salesOrderAction(user, salesOrderId, action) {
+  return mutate(() => base.salesOrderAction(user, salesOrderId, action));
 }
 
 export async function receiveProduct(user, input) {

@@ -276,6 +276,71 @@ button {
   color: var(--muted);
 }
 
+.order-module-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.order-module {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  min-height: 150px;
+}
+
+.order-module h2 {
+  font-size: 20px;
+  margin: 0 0 7px;
+}
+
+.order-module p {
+  line-height: 1.45;
+  margin: 0;
+  max-width: 440px;
+}
+
+.sales-order-header-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.sales-line-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.sales-inventory-field {
+  grid-column: span 2;
+}
+
+.sales-line-facts {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-top: 12px;
+  padding-top: 11px;
+}
+
+.sales-line-facts span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sales-line-facts strong {
+  color: var(--ink);
+  display: block;
+  font-size: 13px;
+  margin-top: 3px;
+}
+
+.sales-order-footer {
+  align-items: flex-end;
+}
+
 .report-block {
   text-align: left;
   color: var(--ink);
@@ -962,6 +1027,7 @@ tr:last-child td {
 
   .cards,
   .dashboard-exceptions,
+  .order-module-grid,
   .form-grid,
   .po-header-grid,
   .po-line-grid,
@@ -972,6 +1038,15 @@ tr:last-child td {
 
   .dashboard-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sales-order-header-grid,
+  .sales-line-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sales-line-facts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .receiving-order-line {
@@ -1074,6 +1149,22 @@ tr:last-child td {
   .receiving-facts,
   .receiving-quantity-preview {
     grid-template-columns: 1fr;
+  }
+
+  .order-module,
+  .sales-order-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sales-order-header-grid,
+  .sales-line-grid,
+  .sales-line-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .sales-inventory-field {
+    grid-column: auto;
   }
 
   .receiving-lot-field {
