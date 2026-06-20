@@ -52,7 +52,7 @@ export function allowedPages(user) {
   const pages = [
     { id: "dashboard", label: "Dashboard", permission: "dashboard:view" },
     { id: "products", label: "Products", permission: "products:view" },
-    { id: "suppliers", label: "Suppliers", permission: "suppliers:view" },
+    { id: "suppliers", label: "Customers & Vendors", permission: "suppliers:view" },
     { id: "purchaseOrders", label: "Purchase Orders", permission: "purchaseOrders:view" },
     { id: "receiving", label: "Receive Product", permission: "receiving:view" },
     { id: "inventory", label: "Inventory Lookup", permission: "inventory:view" },

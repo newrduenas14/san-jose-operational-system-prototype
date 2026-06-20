@@ -1,4 +1,4 @@
-import { createPurchaseOrder, getPurchaseOrderDetail, listProducts, listPurchaseOrders, listSuppliers, purchaseOrderAction } from "../js/api-smooth1.js?v=api3";
+import { createPurchaseOrder, getPurchaseOrderDetail, listProducts, listPurchaseOrders, listSuppliers, purchaseOrderAction } from "../js/api-smooth1.js?v=parties1";
 import { can } from "../js/permissions.js";
 import { escapeHtml, notice, status, table } from "../js/utils.js";
 
@@ -18,7 +18,7 @@ export async function render(ctx) {
   ctx.setTitle("Purchase Orders", "Create multi-product orders with receiving QR codes");
   const [purchaseOrders, products, suppliers] = await Promise.all([listPurchaseOrders(), listProducts(), listSuppliers()]);
   const activeProducts = products.filter(isActive);
-  const activeSuppliers = suppliers.filter(isActive);
+  const activeSuppliers = suppliers.filter(isActive).filter(isVendor);
 
   ctx.view.innerHTML = `
     <div class="grid">
@@ -51,7 +51,7 @@ function poForm(products, suppliers) {
           <div class="field">
             <label>Supplier</label>
             <select name="supplier_id" required>
-              <option value="">Select supplier</option>
+              <option value="">Select vendor</option>
               ${suppliers.map((supplier) => `<option value="${escapeHtml(supplier.supplier_id)}">${escapeHtml(supplier.supplier_name)}</option>`).join("")}
             </select>
           </div>
@@ -224,7 +224,7 @@ function updateExpectedDelivery(form, supplierMap) {
 
 function collectPurchaseOrder(form, productLookup) {
   const supplierId = form.elements.supplier_id.value;
-  if (!supplierId) throw new Error("Select a supplier.");
+  if (!supplierId) throw new Error("Select a vendor.");
   const lines = Array.from(form.querySelectorAll(".po-line-item")).map((line, index) => {
     const lookupValue = line.querySelector("[data-product-search]").value;
     const product = productLookup.get(normalizeLookup(lookupValue));
@@ -546,6 +546,10 @@ function normalizeLookup(value) {
 
 function isActive(record) {
   return record.is_active === true || String(record.is_active).toUpperCase() === "TRUE";
+}
+
+function isVendor(record) {
+  return String(record.party_type || "VENDOR").toUpperCase() !== "CUSTOMER";
 }
 
 function isTrue(value) {

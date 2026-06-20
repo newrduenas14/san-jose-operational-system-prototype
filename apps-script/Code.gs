@@ -157,7 +157,10 @@ function createProduct(payload) {
 function listSuppliers() {
   return readTable_("SUPPLIERS").map((supplier) => ({
     ...supplier,
-    lead_time_expected_days: calculateSupplierLeadTime_(supplier.supplier_id)
+    party_type: normalizePartyType_(supplier.party_type),
+    lead_time_expected_days: normalizePartyType_(supplier.party_type) === "VENDOR"
+      ? calculateSupplierLeadTime_(supplier.supplier_id)
+      : ""
   }));
 }
 
@@ -171,16 +174,19 @@ function createSupplier(payload) {
   requirePermission_(user, "suppliers:create");
 
   const input = payload.input || {};
-  if (!input.supplier_name) throw new Error("Supplier name is required.");
+  if (!input.supplier_name) throw new Error("Business name is required.");
 
+  ensureTableColumns_("SUPPLIERS", ["party_type"]);
   const suppliers = readTable_("SUPPLIERS");
-  const supplierId = input.supplier_id || nextId_("SUPPLIERS", "supplier_id", "SUP");
+  const partyType = normalizePartyType_(input.party_type);
+  const supplierId = input.supplier_id || nextId_("SUPPLIERS", "supplier_id", partyType === "CUSTOMER" ? "CUST" : "SUP");
   if (suppliers.some((row) => row.supplier_id === supplierId)) {
-    throw new Error("Supplier ID already exists.");
+    throw new Error("Business record ID already exists.");
   }
 
   const record = {
     supplier_id: supplierId,
+    party_type: partyType,
     supplier_name: input.supplier_name,
     contact_name: input.contact_name || "",
     email: input.email || "",
@@ -188,7 +194,7 @@ function createSupplier(payload) {
     address: input.address || "",
     payment_terms: input.payment_terms || "Net 30",
     default_currency: input.default_currency || "USD",
-    lead_time_expected_days: calculateSupplierLeadTime_(supplierId),
+    lead_time_expected_days: partyType === "VENDOR" ? calculateSupplierLeadTime_(supplierId) : "",
     is_active: true,
     created_at: new Date(),
     updated_at: new Date(),
@@ -262,7 +268,9 @@ function createPurchaseOrder(payload) {
     const input = payload.input || {};
     const suppliers = readTable_("SUPPLIERS");
     const supplier = suppliers.find((row) => row.supplier_id === input.supplier_id);
-    if (!supplier) throw new Error("Select a valid supplier.");
+    if (!supplier || normalizePartyType_(supplier.party_type) !== "VENDOR") {
+      throw new Error("Select a valid vendor.");
+    }
     const products = readTable_("PRODUCTS");
     const inputLines = Array.isArray(input.lines) ? input.lines : [input];
     if (!inputLines.length) throw new Error("Add at least one product.");
@@ -1061,7 +1069,7 @@ function daysBetween_(start, end) {
 
 function buildSupplierAnalytics_(suppliers, products, purchaseOrders, purchaseOrderLines, receiving, leadTimeBySupplier) {
   const totalSpend = purchaseOrders.reduce((sum, po) => sum + Number(po.total_amount || po.subtotal_amount || 0), 0);
-  return suppliers.map((supplier) => {
+  return suppliers.filter((supplier) => normalizePartyType_(supplier.party_type) === "VENDOR").map((supplier) => {
     const supplierOrders = purchaseOrders.filter((po) => po.supplier_id === supplier.supplier_id);
     const supplierLines = purchaseOrderLines.filter((line) => line.supplier_id === supplier.supplier_id);
     const supplierReceiving = receiving.filter((row) => row.supplier_id === supplier.supplier_id);
@@ -1296,6 +1304,10 @@ function dateKey_(value) {
 
 function unique_(values) {
   return Array.from(new Set(values));
+}
+
+function normalizePartyType_(value) {
+  return String(value || "VENDOR").trim().toUpperCase() === "CUSTOMER" ? "CUSTOMER" : "VENDOR";
 }
 
 function round_(value, decimals) {

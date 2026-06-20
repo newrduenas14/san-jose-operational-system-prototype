@@ -1,6 +1,6 @@
 import { requirePermission } from "./permissions.js";
 import { numberValue, today, uid } from "./utils.js";
-import { GOOGLE_SCRIPT_WEB_APP_URL } from "./config.js?v=api3";
+import { GOOGLE_SCRIPT_WEB_APP_URL } from "./config.js?v=parties1";
 
 const DB_KEY = "sjops.database.v1";
 const APPS_CACHE_PREFIX = "sjops.apps.cache.";
@@ -257,7 +257,10 @@ export async function listSuppliers() {
   const data = await db();
   return data.suppliers.map((supplier) => ({
     ...supplier,
-    lead_time_expected_days: calculateSupplierLeadTime(supplier.supplier_id, data)
+    party_type: normalizePartyType(supplier.party_type),
+    lead_time_expected_days: normalizePartyType(supplier.party_type) === "VENDOR"
+      ? calculateSupplierLeadTime(supplier.supplier_id, data)
+      : ""
   }));
 }
 
@@ -265,9 +268,11 @@ export async function createSupplier(user, input) {
   if (useAppsScript()) return callAppsScript("createSupplier", { user, input });
   requirePermission(user, "suppliers:create");
   const data = await db();
-  const supplierId = input.supplier_id || uid("SUP", data.suppliers, "supplier_id");
+  const partyType = normalizePartyType(input.party_type);
+  const supplierId = input.supplier_id || uid(partyType === "CUSTOMER" ? "CUST" : "SUP", data.suppliers, "supplier_id");
   const supplier = {
     supplier_id: supplierId,
+    party_type: partyType,
     supplier_name: input.supplier_name,
     contact_name: input.contact_name || "",
     email: input.email || "",
@@ -275,13 +280,13 @@ export async function createSupplier(user, input) {
     address: input.address || "",
     payment_terms: input.payment_terms || "Net 30",
     default_currency: input.default_currency || "USD",
-    lead_time_expected_days: calculateSupplierLeadTime(supplierId, data),
+    lead_time_expected_days: partyType === "VENDOR" ? calculateSupplierLeadTime(supplierId, data) : "",
     is_active: true,
     notes: input.notes || ""
   };
-  if (!supplier.supplier_name) throw new Error("Supplier name is required.");
+  if (!supplier.supplier_name) throw new Error("Business name is required.");
   if (data.suppliers.some((item) => item.supplier_id === supplier.supplier_id)) {
-    throw new Error("Supplier ID already exists.");
+    throw new Error("Business record ID already exists.");
   }
   data.suppliers.push(supplier);
   save();
@@ -335,7 +340,9 @@ export async function createPurchaseOrder(user, input) {
   requirePermission(user, "purchaseOrders:create");
   const data = await db();
   const supplier = data.suppliers.find((item) => item.supplier_id === input.supplier_id);
-  if (!supplier) throw new Error("Select a valid supplier.");
+  if (!supplier || normalizePartyType(supplier.party_type) !== "VENDOR") {
+    throw new Error("Select a valid vendor.");
+  }
   const inputLines = Array.isArray(input.lines) ? input.lines : [input];
   if (!inputLines.length) throw new Error("Add at least one product.");
   const validatedLines = inputLines.map((item, index) => validatePurchaseOrderLine(item, index, data.products));
@@ -736,7 +743,7 @@ export async function getOperationalReports() {
 
 function buildSupplierAnalytics(data, leadBySupplier) {
   const totalSpend = data.purchaseOrders.reduce((sum, po) => sum + numberValue(po.total_amount || po.subtotal_amount), 0);
-  return data.suppliers.map((supplier) => {
+  return data.suppliers.filter((supplier) => normalizePartyType(supplier.party_type) === "VENDOR").map((supplier) => {
     const supplierOrders = data.purchaseOrders.filter((po) => po.supplier_id === supplier.supplier_id);
     const supplierLines = data.purchaseOrderLines.filter((line) => line.supplier_id === supplier.supplier_id);
     const supplierReceiving = data.receiving.filter((row) => row.supplier_id === supplier.supplier_id);
@@ -891,6 +898,10 @@ function std(values) {
 
 function unique(values) {
   return Array.from(new Set(values));
+}
+
+function normalizePartyType(value) {
+  return String(value || "VENDOR").trim().toUpperCase() === "CUSTOMER" ? "CUSTOMER" : "VENDOR";
 }
 
 function round(value, decimals = 0) {

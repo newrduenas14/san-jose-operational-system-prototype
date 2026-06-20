@@ -1,4 +1,4 @@
-import { getDashboard, resetToSpreadsheetSeed } from "../js/api-smooth1.js?v=api3";
+import { getDashboard, resetToSpreadsheetSeed } from "../js/api-smooth1.js?v=parties1";
 import { can } from "../js/permissions.js";
 import { notice } from "../js/utils.js";
 
@@ -9,7 +9,7 @@ export async function render(ctx) {
     <div class="grid">
       <div class="cards">
         <div class="card"><span>Products</span><strong>${metrics.productCount}</strong></div>
-        <div class="card"><span>Suppliers</span><strong>${metrics.supplierCount}</strong></div>
+        <div class="card"><span>Customers & Vendors</span><strong>${metrics.supplierCount}</strong></div>
         <div class="card"><span>Open POs</span><strong>${metrics.openPoCount}</strong></div>
         <div class="card"><span>Lots</span><strong>${metrics.lotCount}</strong></div>
       </div>

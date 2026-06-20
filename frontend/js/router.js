@@ -1,4 +1,4 @@
-import { allowedPages } from "./permissions.js";
+import { allowedPages } from "./permissions.js?v=parties1";
 
 let currentPage = "dashboard";
 let routes = {};

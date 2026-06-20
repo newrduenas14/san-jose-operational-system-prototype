@@ -1,4 +1,4 @@
-import { matchAmazonPackageScan } from "../js/api-smooth1.js?v=api3";
+import { matchAmazonPackageScan } from "../js/api-smooth1.js?v=parties1";
 import { handleKeyboardScan } from "../js/scanner.js";
 import { escapeHtml } from "../js/utils.js";
 

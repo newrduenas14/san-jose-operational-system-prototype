@@ -1,4 +1,4 @@
-import { getPurchaseOrderDetail, listLocations, listPurchaseOrders, receiveProduct } from "../js/api-smooth1.js?v=api3";
+import { getPurchaseOrderDetail, listLocations, listPurchaseOrders, receiveProduct } from "../js/api-smooth1.js?v=parties1";
 import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=smooth1";
 import { escapeHtml, formToObject, notice } from "../js/utils.js";
 
