@@ -182,13 +182,17 @@ export async function resetToSpreadsheetSeed() {
 export async function getDashboard() {
   if (useAppsScript()) return callAppsScript("getDashboard");
   const data = await db();
+  const snapshot = await inventorySnapshot();
+  const leadBySupplier = buildLeadTimeStatsBySupplier(data.purchaseOrders);
+  const planning = data.products.map((product) => buildProductPlanning(product, data, snapshot, leadBySupplier));
   return {
     productCount: data.products.length,
     supplierCount: data.suppliers.length,
-    openPoCount: data.purchaseOrders.filter((po) => po.po_status !== "COMPLETE").length,
+    openPoCount: data.purchaseOrders.filter(isOpenPurchaseOrder).length,
     lotCount: data.lots.length,
     movementCount: data.inventoryMovements.length,
-    pendingAmazonPackages: data.amazonPackages.filter((pkg) => !pkg.matched_amazon_order_id).length
+    pendingAmazonPackages: data.amazonPackages.filter((pkg) => !pkg.matched_amazon_order_id).length,
+    ...buildDashboardMetrics(data, snapshot, planning)
   };
 }
 
@@ -528,6 +532,7 @@ export async function receiveProduct(user, input) {
     unit_cost: line.unit_cost,
     current_location_id: confirmedLocation,
     status: qualityStatus === "PASS" ? "ACTIVE" : qualityStatus,
+    expiration_date: calculatedExpirationDate(product, today()),
     qr_value: internalLotId,
     notes: "Created by prototype receiving flow."
   };
@@ -689,7 +694,10 @@ export async function inventorySnapshot() {
   const data = await db();
   const byKey = new Map();
   for (const movement of data.inventoryMovements) {
-    const location = movement.to_location_id || movement.from_location_id || "";
+    const qtyChange = numberValue(movement.qty_change);
+    const location = qtyChange < 0
+      ? movement.from_location_id || movement.to_location_id || ""
+      : movement.to_location_id || movement.from_location_id || "";
     const key = `${movement.product_id}|${movement.internal_lot_id}|${location}`;
     const current = byKey.get(key) || {
       product_id: movement.product_id,
@@ -698,7 +706,7 @@ export async function inventorySnapshot() {
       qty: 0,
       unit_type: movement.unit_type
     };
-    current.qty += numberValue(movement.qty_change);
+    current.qty += qtyChange;
     byKey.set(key, current);
   }
   return Array.from(byKey.values()).map((row) => ({
@@ -815,6 +823,117 @@ function buildProductPlanning(product, data, snapshot, leadBySupplier) {
     status: currentQty <= reorderPoint ? "REORDER" : currentQty < targetStock ? "WATCH" : "OK",
     notes: usage.samples ? "Calculated from movement history." : "No usage history yet; using zero demand fallback."
   };
+}
+
+function buildDashboardMetrics(data, snapshot, planning) {
+  const positiveStock = snapshot.filter((row) => numberValue(row.qty) > 0);
+  const qtyByLot = new Map();
+  positiveStock.forEach((row) => {
+    qtyByLot.set(row.internal_lot_id, (qtyByLot.get(row.internal_lot_id) || 0) + numberValue(row.qty));
+  });
+
+  const totalInventoryValue = positiveStock.reduce((sum, row) => {
+    const lot = row.lot || data.lots.find((item) => item.internal_lot_id === row.internal_lot_id) || {};
+    return sum + numberValue(row.qty) * dashboardUnitCost(lot, data.purchaseOrderLines);
+  }, 0);
+
+  const lowStockProducts = planning
+    .filter((row) => row.average_daily_usage > 0 && row.status === "REORDER")
+    .map((row) => ({
+      product_id: row.product_id,
+      product_name: row.product_name,
+      current_qty: row.current_qty,
+      average_daily_usage: row.average_daily_usage,
+      reorder_point: row.reorder_point,
+      recommended_order_qty: row.recommended_order_qty,
+      days_of_supply: row.average_daily_usage > 0 ? round(row.current_qty / row.average_daily_usage, 1) : 0
+    }))
+    .sort((a, b) => a.days_of_supply - b.days_of_supply);
+
+  const todayDate = startOfDay(new Date());
+  const expirationLimit = new Date(todayDate.getTime() + 30 * 86400000);
+  const expiringLots = data.lots.map((lot) => {
+    const product = data.products.find((item) => item.product_id === lot.product_id) || {};
+    const expirationDate = effectiveExpirationDate(lot, product);
+    const currentQty = qtyByLot.get(lot.internal_lot_id) || 0;
+    if (!expirationDate || currentQty <= 0 || expirationDate < todayDate || expirationDate > expirationLimit) return null;
+    return {
+      internal_lot_id: lot.internal_lot_id,
+      product_id: lot.product_id,
+      product_name: product.product_name || lot.product_id,
+      current_qty: round(currentQty, 2),
+      unit_type: lot.unit_type || "",
+      location_id: lot.current_location_id || "",
+      expiration_date: dateKey(expirationDate),
+      days_remaining: Math.ceil((expirationDate.getTime() - todayDate.getTime()) / 86400000),
+      inventory_value: round(currentQty * dashboardUnitCost(lot, data.purchaseOrderLines), 2)
+    };
+  }).filter(Boolean).sort((a, b) => a.days_remaining - b.days_remaining);
+
+  const activeLocations = data.locations.filter((location) => isActiveRecord(location));
+  const locationIds = new Set(activeLocations.map((location) => location.location_id));
+  const occupiedLocations = new Set(
+    positiveStock.map((row) => row.location_id).filter((locationId) => locationIds.has(locationId))
+  );
+  const openOrders = data.purchaseOrders.filter(isOpenPurchaseOrder);
+
+  return {
+    totalInventoryValue: round(totalInventoryValue, 2),
+    lowStockCount: lowStockProducts.length,
+    lowStockProducts,
+    usageHistoryNeededCount: planning.filter((row) => row.usage_days === 0).length,
+    expiringLotCount: expiringLots.length,
+    expiringProductCount: unique(expiringLots.map((row) => row.product_id)).length,
+    expiringInventoryValue: round(expiringLots.reduce((sum, row) => sum + row.inventory_value, 0), 2),
+    expiringLots,
+    openPoValue: round(openOrders.reduce((sum, po) => sum + numberValue(po.total_amount || po.subtotal_amount), 0), 2),
+    warehouseOccupiedPositions: occupiedLocations.size,
+    warehouseTotalPositions: activeLocations.length,
+    warehouseCapacityPercent: activeLocations.length ? round(occupiedLocations.size / activeLocations.length * 100, 1) : 0
+  };
+}
+
+function isOpenPurchaseOrder(po) {
+  return !["COMPLETE", "CANCELLED", "CLOSED"].includes(String(po.po_status || "").toUpperCase());
+}
+
+function dashboardUnitCost(lot, purchaseOrderLines) {
+  const cost = numberValue(lot.unit_cost);
+  const line = purchaseOrderLines.find((item) => item.po_line_id === lot.po_line_id) || {};
+  const purchaseUnit = String(lot.purchase_unit_type || line.unit_type || "").toUpperCase();
+  const inventoryUnit = String(lot.unit_type || line.base_unit || "").toUpperCase();
+  const unitsPerPurchaseUnit = numberValue(line.units_per_purchase_unit, 1);
+  return purchaseUnit && inventoryUnit && purchaseUnit !== inventoryUnit && unitsPerPurchaseUnit > 0
+    ? cost / unitsPerPurchaseUnit
+    : cost;
+}
+
+function isActiveRecord(record) {
+  return record.is_active === undefined
+    || record.is_active === ""
+    || record.is_active === true
+    || String(record.is_active).toUpperCase() === "TRUE";
+}
+
+function effectiveExpirationDate(lot, product) {
+  const explicit = startOfDay(lot.expiration_date);
+  if (explicit) return explicit;
+  const calculated = calculatedExpirationDate(product, lot.received_date);
+  return calculated ? startOfDay(calculated) : null;
+}
+
+function calculatedExpirationDate(product, receivedDate) {
+  const perishabilityDays = numberValue(product?.perishability_days);
+  const received = startOfDay(receivedDate);
+  if (perishabilityDays <= 0 || !received) return "";
+  return dateKey(new Date(received.getTime() + perishabilityDays * 86400000));
+}
+
+function startOfDay(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
 function buildDailyUsageStats(productId, movements) {

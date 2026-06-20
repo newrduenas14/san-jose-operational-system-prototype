@@ -1,8 +1,8 @@
-import { warmOperationalCache } from "./api-smooth1.js?v=parties1";
+import { warmOperationalCache } from "./api-smooth1.js?v=admin-dashboard1";
 import { getSession, roleOptions, setRole } from "./auth.js";
 import { renderNavigation, renderRoute, configureRouter } from "./router.js?v=parties1";
 import { allowedPages } from "./permissions.js?v=parties1";
-import * as dashboard from "../pages/dashboard.js?v=parties1";
+import * as dashboard from "../pages/dashboard.js?v=admin-dashboard1";
 import * as products from "../pages/products.js?v=parties1";
 import * as suppliers from "../pages/suppliers.js?v=parties1";
 import * as purchaseOrders from "../pages/purchaseOrders.js?v=parties1";

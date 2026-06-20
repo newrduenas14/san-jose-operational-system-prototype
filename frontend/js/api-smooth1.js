@@ -1,4 +1,4 @@
-import * as base from "./api.js?v=parties1";
+import * as base from "./api.js?v=admin-dashboard1";
 
 const READ_CACHE_TTL_MS = 45000;
 const readCache = new Map();

@@ -183,6 +183,99 @@ button {
   margin-top: 6px;
 }
 
+.dashboard-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.dashboard-metric {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  min-height: 142px;
+  padding: 15px;
+}
+
+.dashboard-metric > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dashboard-metric strong {
+  display: block;
+  font-size: 27px;
+  margin-top: 9px;
+}
+
+.dashboard-metric small {
+  color: var(--muted);
+  display: block;
+  line-height: 1.35;
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+.dashboard-metric--attention {
+  border-top: 4px solid #bd7200;
+}
+
+.dashboard-metric--placeholder {
+  background: #f8faf8;
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.dashboard-metric--placeholder strong {
+  color: #879188;
+}
+
+.dashboard-metric--capacity {
+  border-top: 4px solid #167b83;
+}
+
+.capacity-bar {
+  background: #dfe9e7;
+  border-radius: 4px;
+  height: 8px;
+  margin-top: 10px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.capacity-bar span {
+  background: #167b83;
+  display: block;
+  height: 100%;
+}
+
+.dashboard-exceptions {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dashboard-exceptions .panel {
+  min-width: 0;
+}
+
+.dashboard-exceptions .panel-header p {
+  margin: 4px 0 0;
+}
+
+.dashboard-exceptions td small {
+  color: var(--muted);
+}
+
 .report-block {
   text-align: left;
   color: var(--ink);
@@ -868,12 +961,17 @@ tr:last-child td {
   }
 
   .cards,
+  .dashboard-exceptions,
   .form-grid,
   .po-header-grid,
   .po-line-grid,
   .receiving-scan-row,
   .receiving-location-controls {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .receiving-order-line {
@@ -949,6 +1047,10 @@ tr:last-child td {
 
   .cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-metrics {
+    grid-template-columns: 1fr;
   }
 
   .card strong {
