@@ -82,6 +82,10 @@ function salesOrderForm(customers, inventoryChoices) {
               <option>Net 15</option><option>Net 21</option><option selected>Net 30</option>
             </select>
           </div>
+          <div class="field full">
+            <label>Ship To Address</label>
+            <textarea name="shipping_address" placeholder="Select a customer to load the saved address" required></textarea>
+          </div>
           <div class="field">
             <label>Tax</label>
             <label class="switch po-tax-switch"><input name="tax_enabled" type="checkbox"><span>Apply tax</span></label>
@@ -138,6 +142,7 @@ function setupSalesOrderBuilder(ctx, customers, inventoryChoices) {
     if (event.target.name === "customer_id") {
       const customer = customerMap.get(event.target.value);
       if (customer?.payment_terms) form.elements.payment_terms.value = customer.payment_terms;
+      form.elements.shipping_address.value = customer?.address || "";
     }
     if (event.target.name === "tax_enabled") {
       form.elements.tax_rate_percent.disabled = !event.target.checked;
@@ -288,6 +293,7 @@ function collectSalesOrder(form, choiceMap) {
     sales_channel: form.elements.sales_channel.value,
     ship_method: form.elements.ship_method.value,
     payment_terms: form.elements.payment_terms.value,
+    shipping_address: form.elements.shipping_address.value.trim(),
     tax_enabled: form.elements.tax_enabled.checked,
     tax_rate_percent: Number(form.elements.tax_rate_percent.value || 6.25),
     notes: form.elements.notes.value,
@@ -391,14 +397,14 @@ function setupSalesOrderActions(ctx) {
   document.querySelectorAll("[data-sales-action]").forEach((button) => {
     button.addEventListener("click", async () => {
       const { salesOrderId, salesAction } = button.dataset;
-      if (["print", "pickList"].includes(salesAction)) {
+      if (["blSjp", "pickList"].includes(salesAction)) {
         const documentWindow = window.open("", "_blank");
         if (!documentWindow) return notice("Pop-up blocked. Allow pop-ups to open Sales Order documents.");
         try {
           documentWindow.document.write("<p>Preparing Sales Order...</p>");
           const detail = await getSalesOrderDetail(salesOrderId);
           documentWindow.document.open();
-          documentWindow.document.write(salesAction === "pickList" ? printablePickList(detail) : printableSalesOrder(detail));
+          documentWindow.document.write(salesAction === "pickList" ? printablePickList(detail) : printableBillOfLading(detail));
           documentWindow.document.close();
         } catch (error) {
           documentWindow.close();
@@ -423,7 +429,7 @@ function actionButtons(ctx, order) {
   const operator = String(ctx.user.role || "").toUpperCase() === "OPERATOR";
   return `
     <div class="actions po-actions">
-      <button class="btn secondary" data-sales-action="print" data-sales-order-id="${escapeHtml(order.sales_order_id)}" type="button">View / Print</button>
+      <button class="btn secondary" data-sales-action="blSjp" data-sales-order-id="${escapeHtml(order.sales_order_id)}" type="button">BL SJP</button>
       <button class="btn secondary" data-sales-action="pickList" data-sales-order-id="${escapeHtml(order.sales_order_id)}" type="button">Pick List</button>
       ${!operator && orderStatus === "DRAFT" ? actionButton(order, "CONFIRM", "Mark Confirmed") : ""}
       ${orderStatus === "CONFIRMED" ? actionButton(order, "PICKED", "Mark Picked") : ""}
@@ -436,10 +442,35 @@ function actionButton(order, action, label) {
   return `<button class="btn" data-sales-action="${action}" data-sales-order-id="${escapeHtml(order.sales_order_id)}" type="button">${label}</button>`;
 }
 
-function printableSalesOrder(detail) {
+export function printableBillOfLading(detail) {
   if (!detail) throw new Error("Sales Order was not found.");
   const { order, lines } = detail;
-  return printableDocument("Sales Order", order, lines, false);
+  const customerName = order.customer?.supplier_name || order.customer_name || "";
+  const shipToAddress = order.shipping_address || order.customer?.address || "";
+  const logoUrl = new URL("../logo_San_Jose.png", window.location.href).href;
+  const totals = lines.reduce((result, line) => {
+    const qty = Number(line.qty_ordered || 0);
+    const unit = String(line.unit_type || "").toUpperCase();
+    result.weight += qty * Number(line.unit_weight_lbs || 0);
+    if (["CASE", "BOX"].includes(unit)) result.boxes += qty;
+    if (unit === "PALLET") result.pallets += qty;
+    return result;
+  }, { boxes: 0, pallets: 0, weight: 0 });
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>BL ${escapeHtml(order.bl_folio || order.sales_order_id)}</title>
+    <style>
+      @page{size:letter;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#050505;margin:0;font-size:12px}.toolbar{margin:0 0 14px}.toolbar button{padding:9px 15px}.sheet{max-width:760px;margin:auto}.header{position:relative;min-height:128px;text-align:center}.logo{width:255px;max-height:110px;object-fit:contain}.folio{position:absolute;right:4px;top:14px;text-align:left;font-weight:700;font-size:13px}.folio strong{display:block;font-size:29px;line-height:1.05}.company-address{font-weight:700;font-size:12px;margin-top:-5px}.ship-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:20px 0 14px}.ship-box{border:2px solid #050505;min-height:100px}.ship-box h2{font-size:13px;margin:0;padding:5px 8px;border-bottom:2px solid #050505}.ship-box div{padding:8px;font-size:13px;line-height:1.4;white-space:pre-line}.items{width:100%;border-collapse:collapse;table-layout:fixed}.items th,.items td{border:2px solid #050505;padding:6px 7px;height:32px}.items th{font-size:12px;text-align:center}.items th:first-child{width:54%}.items th:nth-child(2){width:15%}.items th:nth-child(3){width:16%}.items th:nth-child(4){width:15%}.number{text-align:center}.product{font-weight:700}.product small{display:block;font-weight:400;margin-top:2px}.totals{display:grid;grid-template-columns:repeat(3,1fr);margin-top:12px;border:2px solid #050505}.totals div{padding:9px 12px;display:flex;justify-content:space-between;border-right:2px solid #050505;font-weight:700}.totals div:last-child{border-right:0}.signatures{margin-top:26px}.line{display:grid;grid-template-columns:105px 1fr;align-items:end;margin-top:18px}.line span:last-child{border-bottom:1px solid #050505;min-height:22px}.signature-row{display:grid;grid-template-columns:1fr 1fr;gap:28px}.muted{font-size:10px;color:#333}@media print{.toolbar{display:none}.sheet{max-width:none}}
+    </style></head><body><div class="toolbar"><button onclick="window.print()">Print BL SJP</button></div><main class="sheet">
+      <header class="header"><img class="logo" src="${escapeHtml(logoUrl)}" alt="San Jose Produce"><div class="folio">FOLIO:<strong>${escapeHtml(order.bl_folio || "PENDING")}</strong></div><div class="company-address">6001 S INTERNATIONAL PKWY SUITE 50<br>MCALLEN, TX 78503</div></header>
+      <section class="ship-grid"><div class="ship-box"><h2>SHIP FROM</h2><div><strong>SAN JOSE PRODUCE &amp; IMPORTS LLC</strong>\n6001 S INTERNATIONAL PKWY SUITE 50\nMCALLEN, TX 78503</div></div><div class="ship-box"><h2>SHIP TO</h2><div><strong>${escapeHtml(customerName)}</strong>\n${escapeHtml(shipToAddress)}</div></div></section>
+      <table class="items"><thead><tr><th>DESCRIPTION</th><th>WEIGHT</th><th>LOTE</th><th>BOXES</th></tr></thead><tbody>${lines.map((line) => {
+        const qty = Number(line.qty_ordered || 0);
+        const unit = String(line.unit_type || "").toUpperCase();
+        const boxes = ["CASE", "BOX"].includes(unit) ? formatNumber(qty) : `${formatNumber(qty)} ${unit}`;
+        return `<tr><td class="product">${escapeHtml(line.product?.product_name || line.product_id)}<small>${escapeHtml(line.product_id)} | ${escapeHtml(line.preferred_location_id || "")}</small></td><td class="number">${formatNumber(qty * Number(line.unit_weight_lbs || 0))} LB</td><td class="number">${escapeHtml(line.preferred_internal_lot_id || "")}</td><td class="number">${escapeHtml(boxes)}</td></tr>`;
+      }).join("")}</tbody></table>
+      <section class="totals"><div><span>TOTAL BOXES</span><strong>${formatNumber(totals.boxes)}</strong></div><div><span>TOTAL PALLETS</span><strong>${formatNumber(totals.pallets)}</strong></div><div><span>TOTAL WEIGHT</span><strong>${formatNumber(totals.weight)} LB</strong></div></section>
+      <section class="signatures"><div class="line"><span>SHIPPER:</span><span>${escapeHtml(displayValue(order.ship_method || ""))}</span></div><div class="line"><span>ADDRESS:</span><span></span></div><div class="signature-row"><div class="line"><span>NAME:</span><span></span></div><div class="line"><span>DATE:</span><span></span></div></div><div class="signature-row"><div class="line"><span>SIGNATURE:</span><span></span></div><div class="line"><span>SO:</span><span>${escapeHtml(order.sales_order_id)}</span></div></div></section>
+    </main></body></html>`;
 }
 
 function printablePickList(detail) {

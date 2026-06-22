@@ -493,6 +493,8 @@ function createSalesOrder(payload) {
     if (!customer || normalizePartyType_(customer.party_type) !== "CUSTOMER") {
       throw new Error("Select a valid customer.");
     }
+    const shippingAddress = String(input.shipping_address || customer.address || "").trim();
+    if (!shippingAddress) throw new Error("Ship To Address is required.");
     const inputLines = Array.isArray(input.lines) ? input.lines : [];
     if (!inputLines.length) throw new Error("Add at least one inventory item.");
     const products = readTable_("PRODUCTS");
@@ -513,7 +515,8 @@ function createSalesOrder(payload) {
 
     ensureTableColumns_("SALES_ORDERS", [
       "customer_id", "ship_method", "payment_terms", "tax_enabled", "tax_rate",
-      "estimated_gross_profit", "estimated_gross_margin_percent", "confirmed_at", "picked_at", "shipped_at"
+      "estimated_gross_profit", "estimated_gross_margin_percent", "confirmed_at", "picked_at", "shipped_at",
+      "bl_folio", "shipping_address"
     ]);
     ensureTableColumns_("SALES_ORDER_LINES", [
       "unit_weight_lbs", "inventory_qty_required", "inventory_unit_type", "unit_cost",
@@ -526,10 +529,12 @@ function createSalesOrder(payload) {
     const taxRate = taxEnabled ? Math.max(0, Number(input.tax_rate_percent || 6.25) / 100) : 0;
     const taxAmount = round_(subtotal * taxRate, 2);
     const salesOrderId = nextId_("SALES_ORDERS", "sales_order_id", "SO");
+    const blFolio = nextBlFolio_();
     const firstLineId = nextId_("SALES_ORDER_LINES", "sales_order_line_id", "SOL");
     const firstLineNumber = Number(String(firstLineId).match(/(\d+)$/)[1]);
     const order = {
       sales_order_id: salesOrderId,
+      bl_folio: blFolio,
       channel: String(input.sales_channel || "OTHER").toUpperCase(),
       order_source: "MANUAL",
       customer_id: customer.supplier_id,
@@ -540,6 +545,7 @@ function createSalesOrder(payload) {
       order_date: dateFromInput_(input.order_date),
       ship_by_date: input.requested_delivery_date ? dateFromInput_(input.requested_delivery_date) : "",
       ship_method: String(input.ship_method || "OTHER").toUpperCase(),
+      shipping_address: shippingAddress,
       payment_terms: input.payment_terms || customer.payment_terms || "Net 30",
       status: "DRAFT",
       currency: customer.default_currency || "USD",
@@ -1321,6 +1327,13 @@ function nextId_(sheetName, idColumn, prefix) {
     return match ? Math.max(max, Number(match[1])) : max;
   }, 0);
   return `${prefix}-${String(maxNumber + 1).padStart(6, "0")}`;
+}
+
+function nextBlFolio_() {
+  const maxFolio = readTable_("SALES_ORDERS").reduce((max, order) => {
+    return Math.max(max, Number(order.bl_folio) || 0);
+  }, 2719);
+  return maxFolio + 1;
 }
 
 function requirePermission_(user, permission) {

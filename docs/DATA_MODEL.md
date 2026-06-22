@@ -6,6 +6,7 @@ The prototype follows the workbook database blueprint.
 
 - `PRODUCTS`: product master with stable `product_id`, name, category, perishability days, active status, and a system-generated QR/barcode value. Purchase units and pack weights belong to purchase order lines rather than the product master.
 - `SUPPLIERS`: shared customer/vendor directory with stable `supplier_id`, `party_type`, contact details, and payment terms. Existing blank types default to `VENDOR`.
+- `SALES_ORDERS`: stores the customer order, its saved per-order shipping address, and a sequential `bl_folio` beginning at 2720 for the BL SJP warehouse document.
 - `LOCATIONS`: warehouse locations, stable `location_id`, QR value, category rules.
 - `USERS`: app users and roles.
 - `DEVICES`: scanners, tablets, and stations.

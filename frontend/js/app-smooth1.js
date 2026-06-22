@@ -1,4 +1,4 @@
-import { warmOperationalCache } from "./api-smooth1.js?v=orders1";
+import { warmOperationalCache } from "./api-smooth1.js?v=bl1";
 import { getSession, roleOptions, setRole } from "./auth.js";
 import { renderNavigation, renderRoute, configureRouter } from "./router.js?v=orders1";
 import { allowedPages } from "./permissions.js?v=orders1";
@@ -7,7 +7,7 @@ import * as products from "../pages/products.js?v=parties1";
 import * as suppliers from "../pages/suppliers.js?v=parties1";
 import * as orders from "../pages/orders.js?v=orders1";
 import * as purchaseOrders from "../pages/purchaseOrders.js?v=parties1";
-import * as salesOrders from "../pages/salesOrders.js?v=orders1";
+import * as salesOrders from "../pages/salesOrders.js?v=bl1";
 import * as receiving from "../pages/receiving.js?v=parties1";
 import * as inventory from "../pages/inventory.js?v=parties1";
 import * as scanner from "../pages/scannerTest.js?v=parties1";

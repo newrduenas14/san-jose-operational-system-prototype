@@ -1,6 +1,6 @@
 import { requirePermission } from "./permissions.js?v=orders1";
 import { numberValue, today, uid } from "./utils.js?v=orders1";
-import { GOOGLE_SCRIPT_WEB_APP_URL } from "./config.js?v=parties1";
+import { GOOGLE_SCRIPT_WEB_APP_URL } from "./config.js?v=bl1";
 
 const DB_KEY = "sjops.database.v1";
 const APPS_CACHE_PREFIX = "sjops.apps.cache.";
@@ -510,6 +510,8 @@ export async function createSalesOrder(user, input) {
   if (!customer || normalizePartyType(customer.party_type) !== "CUSTOMER") {
     throw new Error("Select a valid customer.");
   }
+  const shippingAddress = String(input.shipping_address || customer.address || "").trim();
+  if (!shippingAddress) throw new Error("Ship To Address is required.");
   const inputLines = Array.isArray(input.lines) ? input.lines : [];
   if (!inputLines.length) throw new Error("Add at least one inventory item.");
   const snapshot = await inventorySnapshot();
@@ -523,8 +525,10 @@ export async function createSalesOrder(user, input) {
   const taxRate = taxEnabled ? Math.max(0, numberValue(input.tax_rate_percent, 6.25) / 100) : 0;
   const taxAmount = round(subtotal * taxRate, 2);
   const salesOrderId = uid("SO", data.salesOrders, "sales_order_id");
+  const blFolio = nextBlFolio(data.salesOrders);
   const order = {
     sales_order_id: salesOrderId,
+    bl_folio: blFolio,
     channel: String(input.sales_channel || "OTHER").toUpperCase(),
     order_source: "MANUAL",
     customer_id: customer.supplier_id,
@@ -534,6 +538,7 @@ export async function createSalesOrder(user, input) {
     order_date: input.order_date || today(),
     ship_by_date: input.requested_delivery_date || "",
     ship_method: String(input.ship_method || "OTHER").toUpperCase(),
+    shipping_address: shippingAddress,
     payment_terms: input.payment_terms || customer.payment_terms || "Net 30",
     status: "DRAFT",
     currency: customer.default_currency || "USD",
@@ -584,6 +589,10 @@ export async function createSalesOrder(user, input) {
   data.salesOrderLines.push(...lines);
   save();
   return { ...order, lines };
+}
+
+function nextBlFolio(salesOrders) {
+  return salesOrders.reduce((max, order) => Math.max(max, Number(order.bl_folio) || 0), 2719) + 1;
 }
 
 export async function salesOrderAction(user, salesOrderId, action) {
