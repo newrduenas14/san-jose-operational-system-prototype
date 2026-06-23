@@ -1,5 +1,5 @@
-import { warmOperationalCache } from "./api-smooth1.js?v=bl1";
-import { getSession, roleOptions, setRole } from "./auth.js";
+import { warmOperationalCache } from "./api-smooth1.js?v=users1";
+import { getSession, signIn, signOut } from "./auth.js?v=login1";
 import { renderNavigation, renderRoute, configureRouter } from "./router.js?v=orders1";
 import { allowedPages } from "./permissions.js?v=orders1";
 import * as dashboard from "../pages/dashboard.js?v=orders1";
@@ -13,12 +13,11 @@ import * as inventory from "../pages/inventory.js?v=parties1";
 import * as scanner from "../pages/scannerTest.js?v=parties1";
 import * as amazon from "../pages/amazon.js?v=amazonout2";
 import * as reports from "../pages/reports.js?v=parties1";
-import * as admin from "../pages/admin.js?v=parties1";
+import * as admin from "../pages/admin.js?v=team1";
 
 const view = document.getElementById("view");
 const title = document.getElementById("pageTitle");
 const subtitle = document.getElementById("pageSubtitle");
-const roleSelect = document.getElementById("roleSelect");
 let user = getSession();
 let renderToken = 0;
 
@@ -48,10 +47,9 @@ function context() {
   };
 }
 
-function renderRoleSelect() {
-  roleSelect.innerHTML = roleOptions().map((role) => `
-    <option value="${role}" ${role === user.role ? "selected" : ""}>${role}</option>
-  `).join("");
+function renderSessionIdentity() {
+  document.getElementById("userAvatar").textContent = String(user.full_name || "A").trim().charAt(0).toUpperCase();
+  document.getElementById("currentUserName").textContent = `${user.full_name} · ${user.role}`;
 }
 
 async function renderAppRoute(page) {
@@ -107,19 +105,58 @@ function loadingScreen(label) {
   `;
 }
 
-roleSelect.addEventListener("change", async () => {
-  user = setRole(roleSelect.value);
-  renderRoleSelect();
-  renderNavigation(user);
-  await renderRoute();
-});
-
 document.getElementById("menuToggle").addEventListener("click", () => {
   document.body.classList.toggle("menu-open");
 });
 
+function showApp() {
+  document.body.classList.remove("login-mode");
+  document.getElementById("loginScreen").hidden = true;
+  document.getElementById("app").hidden = false;
+  renderSessionIdentity();
+  renderNavigation(user);
+  renderRoute();
+  window.setTimeout(warmOperationalCache, 1000);
+}
+
+let selectedLoginRole = "";
+document.querySelectorAll("[data-login-role]").forEach((button) => {
+  button.addEventListener("click", () => {
+    selectedLoginRole = button.dataset.loginRole;
+    document.getElementById("loginChoices").hidden = true;
+    document.getElementById("pinForm").hidden = false;
+    document.getElementById("pinRoleLabel").textContent = `${selectedLoginRole} ACCESS`;
+    document.getElementById("pinError").textContent = "";
+    document.getElementById("pinInput").focus();
+  });
+});
+document.getElementById("backToRoles").addEventListener("click", () => {
+  document.getElementById("pinForm").hidden = true;
+  document.getElementById("loginChoices").hidden = false;
+});
+function completeLogin() {
+  try {
+    user = signIn(selectedLoginRole, document.getElementById("pinInput").value);
+    showApp();
+  } catch (error) {
+    document.getElementById("pinError").textContent = error.message;
+    document.getElementById("pinInput").select();
+  }
+}
+window.sjopsCompleteLogin = completeLogin;
+document.getElementById("pinForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  completeLogin();
+});
+document.getElementById("signOutButton").addEventListener("click", () => {
+  signOut();
+  user = null;
+  document.getElementById("app").hidden = true;
+  document.getElementById("loginScreen").hidden = false;
+  document.getElementById("pinForm").hidden = true;
+  document.getElementById("loginChoices").hidden = false;
+});
+
 configureRouter(routes, renderAppRoute);
-renderRoleSelect();
-renderNavigation(user);
-renderRoute();
-window.setTimeout(warmOperationalCache, 1000);
+if (user) showApp();
+else document.body.classList.add("login-mode");

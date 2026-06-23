@@ -1,11 +1,12 @@
 :root {
-  --bg: #f4f7f4;
+  --bg: #f3f5f2;
   --panel: #ffffff;
   --ink: #17211b;
   --muted: #607064;
   --line: #d8e1da;
-  --primary: #1d6f42;
-  --primary-dark: #155735;
+  --primary: #186b45;
+  --primary-dark: #105436;
+  --accent: #d69a2d;
   --warn: #aa6500;
   --danger: #b42318;
   --ok: #1f7a46;
@@ -33,6 +34,21 @@ button {
   touch-action: manipulation;
 }
 
+[hidden] { display: none !important; }
+
+.login-screen { background: #310604 url("../../Operations center.png") center / cover no-repeat; color: white; min-height: 100vh; overflow: hidden; position: relative; }
+.login-overlay { background: linear-gradient(90deg, rgba(21, 3, 3, .42), rgba(18, 1, 1, .08) 60%, rgba(8, 0, 0, .35)); inset: 0; position: absolute; }
+.login-content { left: clamp(32px, 10vw, 156px); position: absolute; top: clamp(72px, 10vh, 152px); transform: none; z-index: 1; }
+.login-heading h1 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; font-size: clamp(72px, 11vw, 170px); font-weight: 400; letter-spacing: .015em; line-height: .89; margin: 0 0 42px; }
+.login-choices { display: flex; gap: 18px; }
+.login-choice { backdrop-filter: blur(8px); background: rgba(255,255,255,.32); border: 1px solid rgba(255,255,255,.5); border-radius: 4px; color: white; font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; font-size: clamp(34px, 4vw, 56px); font-weight: 400; min-width: 190px; padding: 15px 26px; text-shadow: 0 2px 8px rgba(0,0,0,.45); transition: background .18s ease, transform .18s ease; }
+.login-choice:hover { background: rgba(255,255,255,.5); transform: translateY(-2px); }
+.pin-card { backdrop-filter: blur(12px); background: rgba(30, 5, 4, .66); border: 1px solid rgba(255,255,255,.3); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,.36); max-width: 410px; padding: 25px; }
+.pin-card h2 { font-size: 28px; letter-spacing: -.025em; margin: 7px 0 18px; }.pin-card .eyebrow { color: #ffd99b; }
+.pin-card input { background: rgba(255,255,255,.9); font-size: 28px; letter-spacing: .32em; text-align: center; }.pin-submit { font-family: inherit; font-size: 16px; margin-top: 10px; min-width: 100%; padding: 13px; }
+.pin-back { background: transparent; color: white; font-weight: 700; opacity: .9; padding: 0; }.pin-error { color: #ffe0a3; font-weight: 700; min-height: 19px; margin: 8px 0; }
+.login-footer { align-items: flex-end; bottom: clamp(24px, 6vh, 90px); display: flex; gap: 35px; left: clamp(32px, 10vw, 156px); max-width: 760px; position: absolute; z-index: 1; }.login-footer p { font-size: clamp(16px, 1.8vw, 25px); font-weight: 650; line-height: 1.25; margin: 0; max-width: 590px; text-shadow: 0 2px 12px rgba(0,0,0,.72); }.login-footer img { background: white; border: 6px solid white; border-radius: 50%; height: clamp(100px, 10vw, 150px); object-fit: contain; width: clamp(100px, 10vw, 150px); }
+
 #app {
   display: grid;
   grid-template-columns: 280px 1fr;
@@ -40,9 +56,9 @@ button {
 }
 
 .sidebar {
-  background: #123523;
+  background: linear-gradient(180deg, #123c2b 0%, #0b291d 100%);
   color: white;
-  padding: 20px;
+  padding: 24px 16px;
   position: sticky;
   top: 0;
   height: 100vh;
@@ -52,7 +68,7 @@ button {
   display: flex;
   gap: 12px;
   align-items: center;
-  margin-bottom: 24px;
+  margin: 4px 8px 30px;
 }
 
 .brand-mark {
@@ -60,8 +76,8 @@ button {
   place-items: center;
   width: 44px;
   height: 44px;
-  border-radius: 8px;
-  background: #dff2e4;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f5d17c, #d39427);
   color: #123523;
   font-weight: 800;
 }
@@ -74,7 +90,7 @@ button {
 
 .nav {
   display: grid;
-  gap: 8px;
+  gap: 5px;
 }
 
 .nav button {
@@ -82,18 +98,19 @@ button {
   text-align: left;
   color: #eaf3ec;
   background: transparent;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 12px 14px;
+  font-weight: 650;
 }
 
 .nav button.active,
 .nav button:hover {
-  background: rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.14);
 }
 
 .shell {
   min-width: 0;
-  padding: 22px;
+  padding: 30px;
   max-width: 1440px;
 }
 
@@ -107,7 +124,8 @@ button {
 
 .topbar h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: clamp(26px, 3vw, 34px);
+  letter-spacing: -0.035em;
 }
 
 .topbar p {
@@ -131,14 +149,22 @@ button {
   gap: 8px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 12px;
+  padding: 7px 10px 7px 7px;
+  box-shadow: 0 5px 16px rgba(23, 33, 27, 0.05);
 }
 
 .user-panel label {
   color: var(--muted);
   font-size: 13px;
 }
+
+.user-panel-label { color: var(--muted); display: block; font-size: 11px; font-weight: 700; line-height: 1.1; }
+.user-panel strong { display: block; font-size: 13px; white-space: nowrap; }
+.sign-out { background: transparent; color: var(--primary); font-size: 12px; font-weight: 800; margin-left: 6px; padding: 7px; }
+
+.user-panel select { border: 0; min-height: 36px; padding: 4px 28px 4px 4px; font-size: 13px; font-weight: 700; width: auto; }
+.user-avatar { align-items: center; background: var(--primary); border-radius: 9px; color: white; display: inline-flex; font-size: 14px; font-weight: 800; height: 34px; justify-content: center; width: 34px; }
 
 .notice {
   margin-bottom: 14px;
@@ -164,7 +190,7 @@ button {
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 14px;
   box-shadow: var(--shadow);
 }
 
@@ -359,7 +385,7 @@ button {
 }
 
 .panel {
-  padding: 16px;
+  padding: 20px;
 }
 
 .panel-header {
@@ -386,7 +412,7 @@ button {
   align-items: center;
   justify-content: center;
   min-height: 42px;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 10px 14px;
   background: var(--primary);
   color: white;
@@ -427,13 +453,27 @@ button:disabled {
 input, select, textarea {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   min-height: 48px;
   padding: 12px 13px;
   background: white;
   color: var(--ink);
   font-size: 16px;
 }
+
+input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(24, 107, 69, 0.13); outline: 0; }
+
+.admin-layout { display: grid; gap: 16px; }
+.admin-hero { align-items: center; background: linear-gradient(115deg, #123f2d, #17613f); color: white; display: flex; justify-content: space-between; min-height: 168px; overflow: hidden; position: relative; }
+.admin-hero::after { background: rgba(214, 154, 45, 0.17); border-radius: 999px; content: ""; height: 280px; position: absolute; right: -80px; top: -130px; width: 280px; }
+.admin-hero h2 { font-size: clamp(24px, 3vw, 32px); letter-spacing: -0.03em; margin: 7px 0; max-width: 600px; position: relative; z-index: 1; }
+.admin-hero .muted { color: #d4e6da; max-width: 620px; position: relative; z-index: 1; }
+.eyebrow { color: #f7d88f; font-size: 12px; font-weight: 800; letter-spacing: .12em; }
+.admin-hero-stat { background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18); border-radius: 14px; display: grid; min-width: 124px; padding: 17px; position: relative; text-align: center; z-index: 1; }
+.admin-hero-stat strong { font-size: 34px; }.admin-hero-stat span { color: #d4e6da; font-size: 12px; font-weight: 700; }
+.admin-workspace { display: grid; gap: 16px; grid-template-columns: minmax(340px, .9fr) minmax(0, 1.1fr); }
+.admin-secondary { align-items: center; display: flex; justify-content: space-between; }.admin-secondary h2 { font-size: 17px; margin: 0 0 4px; }.admin-secondary p { margin: 0; }
+.role-badge { border-radius: 999px; display: inline-flex; font-size: 12px; font-weight: 800; padding: 5px 9px; }.role-admin { background: #f8e3be; color: #7b4d09; }.role-manager { background: #d9ece2; color: #175f3a; }.role-operator { background: #e3e9e5; color: #43534a; }
 
 textarea {
   min-height: 82px;
@@ -1027,6 +1067,7 @@ tr:last-child td {
 
   .cards,
   .dashboard-exceptions,
+  .admin-workspace,
   .order-module-grid,
   .form-grid,
   .po-header-grid,
@@ -1107,6 +1148,9 @@ tr:last-child td {
   table {
     min-width: 640px;
   }
+
+  .admin-hero { align-items: flex-start; gap: 16px; }
+  .admin-secondary { align-items: stretch; flex-direction: column; gap: 14px; }
 }
 
 @media (max-width: 520px) {
@@ -1119,6 +1163,11 @@ tr:last-child td {
     grid-column: 1 / -1;
     justify-content: space-between;
   }
+
+  .user-panel select { max-width: 235px; }
+
+  .admin-hero { flex-direction: column; }
+  .admin-hero-stat { width: 100%; }
 
   .cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1211,4 +1260,16 @@ tr:last-child td {
   .dashboard-metrics {
     grid-template-columns: 1fr;
   }
+}
+
+@media (max-width: 520px) {
+  .login-screen { background-position: 42% center; }
+  .login-content { left: 28px; right: 28px; top: 68px; }
+  .login-heading h1 { font-size: clamp(66px, 20vw, 94px); margin-bottom: 28px; }
+  .login-choices { gap: 10px; }
+  .login-choice { font-size: 35px; min-width: 0; padding: 15px 18px; width: 50%; }
+  .pin-submit { width: 100%; }
+  .login-footer { align-items: flex-start; bottom: 28px; flex-direction: column-reverse; gap: 14px; left: 28px; right: 28px; }
+  .login-footer p { font-size: 17px; max-width: 340px; }
+  .login-footer img { height: 92px; width: 92px; }
 }

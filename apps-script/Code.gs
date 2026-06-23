@@ -60,6 +60,8 @@ function handleApiRequest_(action, payloadText, callback) {
     const routes = {
       getDashboard,
       listProducts,
+      listUsers,
+      createUser,
       createProduct,
       listSuppliers,
       createSupplier,
@@ -126,6 +128,41 @@ function getDashboard() {
 
 function listProducts() {
   return readTable_("PRODUCTS");
+}
+
+function listUsers() {
+  return readTable_("USERS")
+    .filter((user) => user.is_active !== false && String(user.is_active || "").toUpperCase() !== "FALSE")
+    .sort((a, b) => String(a.full_name || "").localeCompare(String(b.full_name || "")));
+}
+
+function createUser(payload) {
+  payload = payload || {};
+  const actor = payload.user || {};
+  if (String(actor.role || "").toUpperCase() !== "ADMIN") throw new Error("Only an Admin can create users.");
+  const input = payload.input || {};
+  const fullName = String(input.full_name || "").trim();
+  const email = String(input.email || "").trim();
+  const role = String(input.role || "OPERATOR").toUpperCase();
+  if (!fullName) throw new Error("Full name is required.");
+  if (!email) throw new Error("Email is required.");
+  if (["ADMIN", "MANAGER", "OPERATOR"].indexOf(role) < 0) throw new Error("Choose a valid role.");
+  ensureTableColumns_("USERS", ["full_name", "email", "role", "device_assigned", "is_active", "created_at"]);
+  const users = readTable_("USERS");
+  if (users.some((item) => String(item.email || "").toLowerCase() === email.toLowerCase())) {
+    throw new Error("A user with that email already exists.");
+  }
+  const record = {
+    user_id: nextId_("USERS", "user_id", "USR"),
+    full_name: fullName,
+    email: email,
+    role: role,
+    device_assigned: input.device_assigned || "",
+    is_active: true,
+    created_at: new Date()
+  };
+  appendRecord_("USERS", record);
+  return record;
 }
 
 function createProduct(payload) {
