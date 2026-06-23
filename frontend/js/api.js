@@ -8,6 +8,7 @@ const APPS_CACHE_TTL_MS = 45000;
 const READ_ACTIONS = new Set([
   "getDashboard",
   "listProducts",
+  "listUsers",
   "listSuppliers",
   "listLocations",
   "listPurchaseOrders",
@@ -202,6 +203,62 @@ export async function getDashboard() {
 export async function listProducts() {
   if (useAppsScript()) return callAppsScript("listProducts");
   return (await db()).products;
+}
+
+export async function listUsers() {
+  if (useAppsScript()) {
+    try {
+      return await callAppsScript("listUsers");
+    } catch (error) {
+      if (!String(error.message || "").includes("Unknown action")) throw error;
+      return defaultUsers();
+    }
+  }
+  return (await db()).users.filter((user) => user.is_active !== false);
+}
+
+export async function createUser(user, input) {
+  if (useAppsScript()) {
+    try {
+      return await callAppsScript("createUser", { user, input });
+    } catch (error) {
+      if (String(error.message || "").includes("Unknown action")) {
+        throw new Error("User creation is ready in the code, but the Google Apps Script must be redeployed first.");
+      }
+      throw error;
+    }
+  }
+  if (user.role !== "ADMIN") throw new Error("Only an Admin can create users.");
+  const data = await db();
+  const fullName = String(input.full_name || "").trim();
+  const email = String(input.email || "").trim();
+  const role = String(input.role || "OPERATOR").toUpperCase();
+  if (!fullName) throw new Error("Full name is required.");
+  if (!email) throw new Error("Email is required.");
+  if (!["ADMIN", "MANAGER", "OPERATOR"].includes(role)) throw new Error("Choose a valid role.");
+  if (data.users.some((item) => String(item.email || "").toLowerCase() === email.toLowerCase())) {
+    throw new Error("A user with that email already exists.");
+  }
+  const record = {
+    user_id: uid("USR", data.users, "user_id"),
+    full_name: fullName,
+    email,
+    role,
+    device_assigned: input.device_assigned || "",
+    is_active: true,
+    created_at: new Date().toISOString()
+  };
+  data.users.push(record);
+  save();
+  return record;
+}
+
+function defaultUsers() {
+  return [
+    { user_id: "ADMIN", full_name: "Admin User", email: "", role: "ADMIN", is_active: true },
+    { user_id: "MANAGER", full_name: "Manager User", email: "", role: "MANAGER", is_active: true },
+    { user_id: "OPERATOR", full_name: "Warehouse Operator", email: "", role: "OPERATOR", is_active: true }
+  ];
 }
 
 export async function createProduct(user, input) {

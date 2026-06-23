@@ -1,30 +1,30 @@
 import { ROLES } from "./permissions.js";
 
 const SESSION_KEY = "sjops.session";
+const DEFAULT_PIN = "1014";
 
 export function getSession() {
-  const saved = localStorage.getItem(SESSION_KEY);
-  if (saved) return JSON.parse(saved);
-  const session = { user_id: "ADMIN", full_name: "Admin User", role: ROLES.ADMIN };
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  return session;
+  try {
+    const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    return saved?.authenticated ? saved : null;
+  } catch (_error) {
+    return null;
+  }
 }
 
-export function setRole(role) {
-  const names = {
-    ADMIN: "Admin User",
-    MANAGER: "Manager User",
-    OPERATOR: "Warehouse Operator"
-  };
+export function signIn(role, pin) {
+  if (pin !== DEFAULT_PIN) throw new Error("That code does not match. Please try again.");
+  const normalizedRole = role === ROLES.ADMIN ? ROLES.ADMIN : ROLES.OPERATOR;
   const session = {
-    user_id: role,
-    full_name: names[role],
-    role
+    authenticated: true,
+    user_id: normalizedRole,
+    full_name: normalizedRole === ROLES.ADMIN ? "Admin" : "Operator",
+    role: normalizedRole
   };
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   return session;
 }
 
-export function roleOptions() {
-  return Object.values(ROLES);
+export function signOut() {
+  localStorage.removeItem(SESSION_KEY);
 }

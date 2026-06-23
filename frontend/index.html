@@ -4,13 +4,35 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>San Jose Operations Prototype</title>
-    <link rel="stylesheet" href="./css/styles.css?v=orders1">
+    <link rel="stylesheet" href="./css/styles.css?v=login8">
     <link rel="stylesheet" href="./css/reports-mobile.css?v=opsreports3">
     <link rel="stylesheet" href="./css/smooth.css?v=smooth1">
-    <script type="module" src="./js/app-smooth1.js?v=bl2"></script>
+    <script type="module" src="./js/app-smooth1.js?v=login3"></script>
   </head>
   <body>
-    <div id="app">
+    <section id="loginScreen" class="login-screen" aria-label="Operations Center sign in">
+      <div class="login-overlay"></div>
+      <div class="login-content">
+        <div class="login-heading"><h1>Operations<br>Center</h1></div>
+        <div id="loginChoices" class="login-choices">
+          <button class="login-choice" data-login-role="ADMIN" type="button">Admin</button>
+          <button class="login-choice" data-login-role="OPERATOR" type="button">Operator</button>
+        </div>
+        <form id="pinForm" class="pin-card" hidden>
+          <button id="backToRoles" class="pin-back" type="button">← Change workspace</button>
+          <p id="pinRoleLabel" class="eyebrow">ADMIN ACCESS</p>
+          <h2>Enter your 4-digit code</h2>
+          <input id="pinInput" inputmode="numeric" autocomplete="one-time-code" maxlength="4" pattern="[0-9]{4}" aria-label="Four digit access code" placeholder="• • • •" required>
+          <p id="pinError" class="pin-error" aria-live="polite"></p>
+          <button class="login-choice pin-submit" type="button" onclick="window.sjopsCompleteLogin()">Unlock workspace</button>
+        </form>
+      </div>
+      <div class="login-footer">
+        <p>Every product is carefully selected and packed in our facility near Aquila, Michoacán preserving quality, tradition, and flavor.</p>
+        <img src="../SAN_JOSE_LOGOS.png" alt="San José Farms">
+      </div>
+    </section>
+    <div id="app" hidden>
       <aside class="sidebar">
         <div class="brand">
           <span class="brand-mark">SJ</span>
@@ -30,8 +52,9 @@
             <p id="pageSubtitle">Spreadsheet-backed frontend prototype</p>
           </div>
           <div class="user-panel">
-            <label for="roleSelect">Role</label>
-            <select id="roleSelect"></select>
+            <span class="user-avatar" id="userAvatar">A</span>
+            <div><span class="user-panel-label">Signed in as</span><strong id="currentUserName">Admin</strong></div>
+            <button id="signOutButton" class="sign-out" type="button">Sign out</button>
           </div>
         </header>
 

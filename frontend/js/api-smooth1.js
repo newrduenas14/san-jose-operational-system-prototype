@@ -27,6 +27,7 @@ export function clearApiCache() {
 
 export const getDashboard = () => cachedRead("getDashboard", [], base.getDashboard);
 export const listProducts = () => cachedRead("listProducts", [], base.listProducts);
+export const listUsers = () => cachedRead("listUsers", [], base.listUsers);
 export const listSuppliers = () => cachedRead("listSuppliers", [], base.listSuppliers);
 export const listLocations = () => cachedRead("listLocations", [], base.listLocations);
 export const listPurchaseOrders = () => cachedRead("listPurchaseOrders", [], base.listPurchaseOrders);
@@ -39,6 +40,10 @@ export const listAmazonOutboundActivity = () => cachedRead("listAmazonOutboundAc
 
 export async function createProduct(user, input) {
   return mutate(() => base.createProduct(user, input));
+}
+
+export async function createUser(user, input) {
+  return mutate(() => base.createUser(user, input));
 }
 
 export async function updateProductStatus(user, productId, isActive) {
