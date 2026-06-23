@@ -75,6 +75,8 @@ function handleApiRequest_(action, payloadText, callback) {
       salesOrderAction,
       receiveProduct,
       recordInventoryMovement,
+      recordAmazonOutbound,
+      listAmazonOutboundActivity,
       inventorySnapshot,
       getOperationalReports,
       lookupScan,
@@ -1013,6 +1015,66 @@ function recordInventoryMovement(payload) {
   appendRecord_("INVENTORY_MOVEMENTS", movement);
   updateLotQuantity_(lot.internal_lot_id, qtyChange);
   return movement;
+}
+
+function recordAmazonOutbound(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "inventory:adjust");
+  const input = payload.input || {};
+  const lotKey = String(input.internal_lot_id || "").trim();
+  if (!lotKey) throw new Error("Scan or enter an internal lot.");
+  const lot = readTable_("LOTS").find((row) =>
+    [row.internal_lot_id, row.qr_value, row.supplier_lot_number].includes(lotKey)
+  );
+  if (!lot) throw new Error("Lot was not found.");
+  const qty = Number(input.qty || 0);
+  if (!isFinite(qty) || qty <= 0) throw new Error("Quantity must be greater than zero.");
+  const available = inventorySnapshot()
+    .filter((row) => row.internal_lot_id === lot.internal_lot_id && row.location_id === lot.current_location_id)
+    .reduce((total, row) => total + Number(row.available_qty || 0), 0);
+  if (qty > available + 0.0001) throw new Error(`Only ${available} ${lot.unit_type} is available from this lot.`);
+
+  ensureTableColumns_("INVENTORY_MOVEMENTS", ["related_amazon_order_id"]);
+  const movement = {
+    movement_id: nextId_("INVENTORY_MOVEMENTS", "movement_id", "MOV"),
+    movement_type: "AMAZON_OUT",
+    timestamp: new Date(),
+    user_id: user.user_id || user.role || "UNKNOWN",
+    product_id: lot.product_id,
+    internal_lot_id: lot.internal_lot_id,
+    package_id: "",
+    qty_change: -qty,
+    unit_type: input.unit_type || lot.unit_type,
+    from_location_id: lot.current_location_id,
+    to_location_id: "AMAZON_OUTBOUND",
+    related_po_id: lot.po_id || "",
+    related_receiving_id: "",
+    related_sales_order_id: "",
+    related_pick_task_id: "",
+    related_amazon_order_id: String(input.amazon_reference || "").trim(),
+    scan_code: lotKey,
+    device_id: "WEB_APP",
+    approval_status: "APPROVED",
+    notes: input.notes || ""
+  };
+  appendRecord_("INVENTORY_MOVEMENTS", movement);
+  updateLotQuantity_(lot.internal_lot_id, -qty);
+  return movement;
+}
+
+function listAmazonOutboundActivity() {
+  const products = readTable_("PRODUCTS");
+  const lots = readTable_("LOTS");
+  return readTable_("INVENTORY_MOVEMENTS")
+    .filter((movement) => movement.movement_type === "AMAZON_OUT")
+    .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))
+    .slice(0, 25)
+    .map((movement) => ({
+      ...movement,
+      product: products.find((product) => product.product_id === movement.product_id) || null,
+      lot: lots.find((lot) => lot.internal_lot_id === movement.internal_lot_id) || null
+    }));
 }
 
 function matchAmazonPackageScan(payload) {

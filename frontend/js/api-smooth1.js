@@ -35,6 +35,7 @@ export const inventorySnapshot = () => cachedRead("inventorySnapshot", [], base.
 export const getOperationalReports = () => cachedRead("getOperationalReports", [], base.getOperationalReports);
 export const getPurchaseOrderDetail = (poId) => cachedRead("getPurchaseOrderDetail", [poId], () => base.getPurchaseOrderDetail(poId));
 export const getSalesOrderDetail = (salesOrderId) => cachedRead("getSalesOrderDetail", [salesOrderId], () => base.getSalesOrderDetail(salesOrderId));
+export const listAmazonOutboundActivity = () => cachedRead("listAmazonOutboundActivity", [], base.listAmazonOutboundActivity);
 
 export async function createProduct(user, input) {
   return mutate(() => base.createProduct(user, input));
@@ -70,6 +71,10 @@ export async function receiveProduct(user, input) {
 
 export async function recordInventoryMovement(user, input) {
   return mutate(() => base.recordInventoryMovement(user, input));
+}
+
+export async function recordAmazonOutbound(user, input) {
+  return mutate(() => base.recordAmazonOutbound(user, input));
 }
 
 export async function lookupScan(scanValue) {

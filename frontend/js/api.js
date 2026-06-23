@@ -14,6 +14,7 @@ const READ_ACTIONS = new Set([
   "getPurchaseOrderDetail",
   "listSalesOrders",
   "getSalesOrderDetail",
+  "listAmazonOutboundActivity",
   "inventorySnapshot",
   "getOperationalReports"
 ]);
@@ -929,6 +930,82 @@ export async function recordInventoryMovement(user, input) {
   data.inventoryMovements.push(movement);
   save();
   return movement;
+}
+
+export async function recordAmazonOutbound(user, input) {
+  if (useAppsScript()) {
+    try {
+      return await callAppsScript("recordAmazonOutbound", { user, input });
+    } catch (error) {
+      if (!String(error.message || "").includes("Unknown action")) throw error;
+      const reference = String(input.amazon_reference || "").trim();
+      return callAppsScript("recordInventoryMovement", {
+        user,
+        input: {
+          ...input,
+          movement_type: "AMAZON_OUT",
+          notes: [reference && `Amazon reference: ${reference}`, input.notes].filter(Boolean).join(" | ")
+        }
+      });
+    }
+  }
+  requirePermission(user, "inventory:adjust");
+  const data = await db();
+  const lotKey = String(input.internal_lot_id || "").trim();
+  const lot = data.lots.find((item) => [item.internal_lot_id, item.qr_value, item.supplier_lot_number].includes(lotKey));
+  if (!lot) throw new Error("Scan or enter a valid internal lot.");
+  const qty = numberValue(input.qty);
+  if (qty <= 0) throw new Error("Quantity must be greater than zero.");
+  const available = (await inventorySnapshot())
+    .filter((row) => row.internal_lot_id === lot.internal_lot_id && row.location_id === lot.current_location_id)
+    .reduce((total, row) => total + numberValue(row.available_qty), 0);
+  if (qty > available + 0.0001) throw new Error(`Only ${available} ${lot.unit_type} is available from this lot.`);
+
+  const reference = String(input.amazon_reference || "").trim();
+  const movement = {
+    movement_id: uid("MOV", data.inventoryMovements, "movement_id"),
+    movement_type: "AMAZON_OUT",
+    timestamp: new Date().toISOString(),
+    user_id: user.user_id,
+    product_id: lot.product_id,
+    internal_lot_id: lot.internal_lot_id,
+    qty_change: -qty,
+    unit_type: input.unit_type || lot.unit_type,
+    from_location_id: lot.current_location_id,
+    to_location_id: "AMAZON_OUTBOUND",
+    related_po_id: lot.po_id || "",
+    related_receiving_id: "",
+    related_amazon_order_id: reference,
+    scan_code: lotKey,
+    device_id: "WEB-PROTOTYPE",
+    approval_status: "APPROVED",
+    notes: input.notes || ""
+  };
+  lot.current_qty_script = numberValue(lot.current_qty_script) - qty;
+  data.inventoryMovements.push(movement);
+  save();
+  return movement;
+}
+
+export async function listAmazonOutboundActivity() {
+  if (useAppsScript()) {
+    try {
+      return await callAppsScript("listAmazonOutboundActivity");
+    } catch (error) {
+      if (String(error.message || "").includes("Unknown action")) return [];
+      throw error;
+    }
+  }
+  const data = await db();
+  return data.inventoryMovements
+    .filter((movement) => movement.movement_type === "AMAZON_OUT")
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    .slice(0, 25)
+    .map((movement) => ({
+      ...movement,
+      product: data.products.find((product) => product.product_id === movement.product_id) || null,
+      lot: data.lots.find((lot) => lot.internal_lot_id === movement.internal_lot_id) || null
+    }));
 }
 
 export function purchaseOrderQrValue({ poId, poLineId, productId, productName, qty, supplierLotNumber = "" }) {

@@ -47,7 +47,7 @@ Products added in the app can also be scanned using their `QR / Barcode Value`.
 - Create inventory movement records.
 - Inventory lookup from movement records.
 - Camera scanner and keyboard scanner helpers.
-- Amazon package matching placeholder.
+- Fast Amazon outbound flow: scan a lot, record quantity leaving, and view the recent outbound log.
 
 ## Important Limitation
 
