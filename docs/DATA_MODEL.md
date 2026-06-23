@@ -31,6 +31,11 @@ The prototype follows the workbook database blueprint.
 - `SALES_ORDER_LINES`: inventory-backed order allocations by product, internal lot, location, sales unit, quantity, price, cost, expiration, and FEFO status.
 - `PICK_TASKS`: soft inventory reservations created when a Sales Order is confirmed. Picking changes task and line status but does not post an inventory deduction yet.
 
+## Amazon Outbound
+
+- An `AMAZON_OUT` row in `INVENTORY_MOVEMENTS` is created whenever stock leaves the warehouse for Amazon.
+- It records the internal lot, quantity, user, source location, optional Amazon shipment/reference, and timestamp. This is the fast operational record; it deducts available inventory immediately.
+
 ## Amazon Future API
 
 - `AMAZON_ORDERS_API_RAW`

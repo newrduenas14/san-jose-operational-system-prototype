@@ -1,6 +1,6 @@
 # Amazon API Plan
 
-This prototype only validates package scan behavior.
+This prototype records outbound stock before API integration: scan the internal lot, enter the quantity, and optionally capture the Amazon shipment/reference. This writes an `AMAZON_OUT` inventory movement and reduces available inventory immediately.
 
 Future Amazon integration should:
 

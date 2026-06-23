@@ -11,7 +11,7 @@ import * as salesOrders from "../pages/salesOrders.js?v=bl2";
 import * as receiving from "../pages/receiving.js?v=parties1";
 import * as inventory from "../pages/inventory.js?v=parties1";
 import * as scanner from "../pages/scannerTest.js?v=parties1";
-import * as amazon from "../pages/amazon.js?v=parties1";
+import * as amazon from "../pages/amazon.js?v=amazonout2";
 import * as reports from "../pages/reports.js?v=parties1";
 import * as admin from "../pages/admin.js?v=parties1";
 
