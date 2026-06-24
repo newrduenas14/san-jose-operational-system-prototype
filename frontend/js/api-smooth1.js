@@ -27,6 +27,7 @@ export function clearApiCache() {
 
 export const getDashboard = () => cachedRead("getDashboard", [], base.getDashboard);
 export const listProducts = () => cachedRead("listProducts", [], base.listProducts);
+export const listLots = () => cachedRead("listLots", [], base.listLots);
 export const listUsers = () => cachedRead("listUsers", [], base.listUsers);
 export const listSuppliers = () => cachedRead("listSuppliers", [], base.listSuppliers);
 export const listLocations = () => cachedRead("listLocations", [], base.listLocations);

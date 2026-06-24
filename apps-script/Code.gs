@@ -60,6 +60,7 @@ function handleApiRequest_(action, payloadText, callback) {
     const routes = {
       getDashboard,
       listProducts,
+      listLots,
       createOpeningInventory,
       listUsers,
       createUser,
@@ -129,6 +130,10 @@ function getDashboard() {
 
 function listProducts() {
   return readTable_("PRODUCTS");
+}
+
+function listLots() {
+  return readTable_("LOTS");
 }
 
 function createOpeningInventory(payload) {

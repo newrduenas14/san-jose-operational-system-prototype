@@ -205,6 +205,11 @@ export async function listProducts() {
   return (await db()).products;
 }
 
+export async function listLots() {
+  if (useAppsScript()) return callAppsScript("listLots");
+  return (await db()).lots;
+}
+
 export async function listUsers() {
   if (useAppsScript()) {
     try {
