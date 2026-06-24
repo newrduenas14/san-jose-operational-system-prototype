@@ -45,6 +45,7 @@ export async function render(ctx) {
           { label: "Supplier Lot", render: (row) => escapeHtml(row.lot?.supplier_lot_number || "") },
           { label: "Location", key: "location_id" },
           { label: "Qty", key: "qty" },
+          { label: "Purchase Units", render: (row) => escapeHtml(purchaseUnits(row)) },
           { label: "Base Unit", key: "unit_type" }
         ], rows)}
       </section>
@@ -81,6 +82,17 @@ export async function render(ctx) {
       notice(error.message);
     }
   });
+}
+
+function purchaseUnits(row) {
+  const lot = row.lot || {};
+  const received = Number(lot.purchase_qty_received || 0);
+  const original = Number(lot.original_qty || 0);
+  const weightPerUnit = received > 0 ? original / received : 0;
+  const purchaseUnit = lot.purchase_unit_type || "";
+  if (!weightPerUnit || !purchaseUnit) return "—";
+  const units = Number(row.qty || 0) / weightPerUnit;
+  return `${units.toFixed(units % 1 ? 2 : 0)} ${purchaseUnit}`;
 }
 
 function fillMovementForm(lot) {
