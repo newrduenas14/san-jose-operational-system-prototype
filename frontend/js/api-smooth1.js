@@ -41,6 +41,7 @@ export const listAmazonOutboundActivity = () => cachedRead("listAmazonOutboundAc
 export async function createProduct(user, input) {
   return mutate(() => base.createProduct(user, input));
 }
+export async function createOpeningInventory(user, input) { return mutate(() => base.createOpeningInventory(user, input)); }
 
 export async function createUser(user, input) {
   return mutate(() => base.createUser(user, input));

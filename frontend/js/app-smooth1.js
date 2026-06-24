@@ -9,6 +9,7 @@ import * as orders from "../pages/orders.js?v=orders1";
 import * as purchaseOrders from "../pages/purchaseOrders.js?v=parties1";
 import * as salesOrders from "../pages/salesOrders.js?v=bl2";
 import * as receiving from "../pages/receiving.js?v=parties1";
+import * as openingInventory from "../pages/openingInventory.js?v=open1";
 import * as inventory from "../pages/inventory.js?v=parties1";
 import * as scanner from "../pages/scannerTest.js?v=parties1";
 import * as amazon from "../pages/amazon.js?v=amazonout2";
@@ -29,6 +30,7 @@ const routes = {
   purchaseOrders,
   salesOrders,
   receiving,
+  openingInventory,
   inventory,
   scanner,
   amazon,
@@ -123,6 +125,7 @@ let selectedLoginRole = "";
 document.querySelectorAll("[data-login-role]").forEach((button) => {
   button.addEventListener("click", () => {
     selectedLoginRole = button.dataset.loginRole;
+    document.getElementById("loginScreen").classList.add("unlocking");
     document.getElementById("loginChoices").hidden = true;
     document.getElementById("pinForm").hidden = false;
     document.getElementById("pinRoleLabel").textContent = `${selectedLoginRole} ACCESS`;
@@ -131,6 +134,7 @@ document.querySelectorAll("[data-login-role]").forEach((button) => {
   });
 });
 document.getElementById("backToRoles").addEventListener("click", () => {
+  document.getElementById("loginScreen").classList.remove("unlocking");
   document.getElementById("pinForm").hidden = true;
   document.getElementById("loginChoices").hidden = false;
 });
@@ -153,6 +157,7 @@ document.getElementById("signOutButton").addEventListener("click", () => {
   user = null;
   document.getElementById("app").hidden = true;
   document.getElementById("loginScreen").hidden = false;
+  document.getElementById("loginScreen").classList.remove("unlocking");
   document.getElementById("pinForm").hidden = true;
   document.getElementById("loginChoices").hidden = false;
 });

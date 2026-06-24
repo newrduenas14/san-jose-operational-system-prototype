@@ -62,6 +62,7 @@ export function allowedPages(user) {
     { id: "purchaseOrders", label: "Purchase Orders", permission: "purchaseOrders:view", hidden: true },
     { id: "salesOrders", label: "Sales Orders", permission: "salesOrders:view", hidden: true },
     { id: "receiving", label: "Receive Product", permission: "receiving:view" },
+    { id: "openingInventory", label: "Opening Inventory", permission: "receiving:view" },
     { id: "inventory", label: "Inventory Lookup", permission: "inventory:view" },
     { id: "scanner", label: "Scanner Test", permission: "scanner:test" },
     { id: "amazon", label: "Amazon Outbound", permission: "amazon:view" },
