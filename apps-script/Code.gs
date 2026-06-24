@@ -143,6 +143,7 @@ function createOpeningInventory(payload) {
   if (!name || !isFinite(qty) || qty <= 0 || !isFinite(weight) || weight <= 0 || !location) {
     throw new Error("Complete product, quantity, weight, and inventory space.");
   }
+  if (String(location.current_status || "AVAILABLE").toUpperCase() !== "AVAILABLE") throw new Error("Choose an available inventory space.");
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
@@ -167,6 +168,7 @@ function createOpeningInventory(payload) {
       from_location_id: "OPENING_COUNT", to_location_id: location.location_id, scan_code: lot.internal_lot_id, device_id: "WEB_APP", approval_status: "APPROVED", notes: input.notes || ""
     };
     appendRecord_("LOTS", lot); appendRecord_("INVENTORY_MOVEMENTS", movement);
+    updateTableRecord_("LOCATIONS", "location_id", location.location_id, { current_status: "UNAVAILABLE" });
     return { product: product, lot: lot, movement: movement };
   } finally { lock.releaseLock(); }
 }
