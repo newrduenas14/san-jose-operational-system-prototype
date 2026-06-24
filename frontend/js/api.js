@@ -304,6 +304,27 @@ export async function createProduct(user, input) {
   return product;
 }
 
+export async function createOpeningInventory(user, input) {
+  if (useAppsScript()) return callAppsScript("createOpeningInventory", { user, input });
+  requirePermission(user, "receiving:create");
+  const data = await db();
+  const name = String(input.product_name || "").trim();
+  const qty = numberValue(input.qty);
+  const weight = numberValue(input.purchase_unit_weight);
+  const location = data.locations.find((item) => item.location_id === input.location_id);
+  if (!name || qty <= 0 || weight <= 0 || !location) throw new Error("Complete product, quantity, weight, and inventory space.");
+  let product = data.products.find((item) => item.product_name.toLowerCase() === name.toLowerCase());
+  if (!product) {
+    product = { product_id: uid("PROD", data.products, "product_id"), product_name: name, product_category: input.product_category || "General", base_unit: "LB", perishability_days: numberValue(input.perishability_days), barcode_or_qr_value: "", is_active: true };
+    product.barcode_or_qr_value = product.product_id;
+    data.products.push(product);
+  }
+  const lot = { internal_lot_id: uid("LOT", data.lots, "internal_lot_id"), product_id: product.product_id, supplier_lot_number: input.supplier_lot_number || "OPENING", original_qty: qty * weight, current_qty_script: qty * weight, unit_type: "LB", purchase_qty_received: qty, purchase_unit_type: input.purchase_unit, current_location_id: location.location_id, status: "ACTIVE", received_date: today(), qr_value: "", notes: "Opening inventory count." };
+  lot.qr_value = lot.internal_lot_id;
+  const movement = { movement_id: uid("MOV", data.inventoryMovements, "movement_id"), movement_type: "OPENING_INVENTORY", timestamp: new Date().toISOString(), user_id: user.user_id, product_id: product.product_id, internal_lot_id: lot.internal_lot_id, qty_change: lot.original_qty, unit_type: "LB", from_location_id: "OPENING_COUNT", to_location_id: location.location_id, scan_code: lot.internal_lot_id, device_id: "WEB", approval_status: "APPROVED", notes: input.notes || "" };
+  data.lots.push(lot); data.inventoryMovements.push(movement); save(); return { product, lot, movement };
+}
+
 export async function updateProductStatus(user, productId, isActive) {
   if (useAppsScript()) return callAppsScript("updateProductStatus", { user, productId, isActive });
   requirePermission(user, "products:edit");

@@ -9,6 +9,7 @@ import * as orders from "../pages/orders.js?v=orders1";
 import * as purchaseOrders from "../pages/purchaseOrders.js?v=parties1";
 import * as salesOrders from "../pages/salesOrders.js?v=bl2";
 import * as receiving from "../pages/receiving.js?v=parties1";
+import * as openingInventory from "../pages/openingInventory.js?v=open1";
 import * as inventory from "../pages/inventory.js?v=parties1";
 import * as scanner from "../pages/scannerTest.js?v=parties1";
 import * as amazon from "../pages/amazon.js?v=amazonout2";
@@ -29,6 +30,7 @@ const routes = {
   purchaseOrders,
   salesOrders,
   receiving,
+  openingInventory,
   inventory,
   scanner,
   amazon,
