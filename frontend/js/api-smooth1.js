@@ -1,4 +1,4 @@
-import * as base from "./api.js?v=bl1";
+import * as base from "./api.js?v=opening1";
 
 const READ_CACHE_TTL_MS = 45000;
 const readCache = new Map();

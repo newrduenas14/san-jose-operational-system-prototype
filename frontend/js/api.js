@@ -1,6 +1,6 @@
 import { requirePermission } from "./permissions.js?v=orders1";
 import { numberValue, today, uid } from "./utils.js?v=orders1";
-import { GOOGLE_SCRIPT_WEB_APP_URL } from "./config.js?v=bl1";
+import { GOOGLE_SCRIPT_WEB_APP_URL } from "./config.js?v=opening1";
 
 const DB_KEY = "sjops.database.v1";
 const APPS_CACHE_PREFIX = "sjops.apps.cache.";
