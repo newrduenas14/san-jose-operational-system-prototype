@@ -1,4 +1,4 @@
-import { createOpeningInventory, listLocations, listProducts } from "../js/api-smooth1.js?v=open1";
+import { createOpeningInventory, listLocations, listProducts } from "../js/api-smooth1.js?v=open2";
 import { formToObject, notice } from "../js/utils.js";
 export async function render(ctx) {
   ctx.setTitle("Opening Inventory", "Create your starting on-hand stock in one step");
