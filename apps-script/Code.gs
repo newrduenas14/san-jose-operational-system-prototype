@@ -1888,6 +1888,7 @@ function dashboardInventoryValue_(lot, currentQty, purchaseOrderLines) {
   const line = purchaseOrderLines.find((item) => item.po_line_id === lot.po_line_id) || {};
   const purchaseUnit = String(lot.purchase_unit_type || line.unit_type || "").toUpperCase();
   const inventoryUnit = String(lot.unit_type || line.base_unit || "").toUpperCase();
+  // Value inventory by remaining purchase units, not raw base-unit quantity.
   const lotUnitsPerPurchaseUnit = Number(lot.purchase_qty_received || 0) > 0
     ? Number(lot.original_qty || 0) / Number(lot.purchase_qty_received || 0)
     : 0;
