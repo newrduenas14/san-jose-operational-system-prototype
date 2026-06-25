@@ -1784,7 +1784,7 @@ function buildDashboardMetrics_(products, purchaseOrders, purchaseOrderLines, sa
 
   const totalInventoryValue = positiveStock.reduce((sum, row) => {
     const lot = lots.find((item) => item.internal_lot_id === row.internal_lot_id) || {};
-    return sum + Number(row.current_qty || 0) * dashboardUnitCost_(lot, purchaseOrderLines);
+    return sum + dashboardInventoryValue_(lot, Number(row.current_qty || 0), purchaseOrderLines);
   }, 0);
 
   const lowStockProducts = planning
@@ -1818,7 +1818,7 @@ function buildDashboardMetrics_(products, purchaseOrders, purchaseOrderLines, sa
       location_id: lot.current_location_id || "",
       expiration_date: dateKey_(expirationDate),
       days_remaining: Math.ceil((expirationDate.getTime() - today.getTime()) / 86400000),
-      inventory_value: round_(currentQty * dashboardUnitCost_(lot, purchaseOrderLines), 2)
+      inventory_value: round_(dashboardInventoryValue_(lot, currentQty, purchaseOrderLines), 2)
     };
   }).filter((row) => row).sort((a, b) => a.days_remaining - b.days_remaining);
 
@@ -1883,15 +1883,19 @@ function isOpenPurchaseOrder_(po) {
   return ["COMPLETE", "CANCELLED", "CLOSED"].indexOf(String(po.po_status || "").toUpperCase()) === -1;
 }
 
-function dashboardUnitCost_(lot, purchaseOrderLines) {
+function dashboardInventoryValue_(lot, currentQty, purchaseOrderLines) {
   const cost = Number(lot.unit_cost || 0);
   const line = purchaseOrderLines.find((item) => item.po_line_id === lot.po_line_id) || {};
   const purchaseUnit = String(lot.purchase_unit_type || line.unit_type || "").toUpperCase();
   const inventoryUnit = String(lot.unit_type || line.base_unit || "").toUpperCase();
-  const unitsPerPurchaseUnit = Number(line.units_per_purchase_unit || 1) || 1;
-  return purchaseUnit && inventoryUnit && purchaseUnit !== inventoryUnit && unitsPerPurchaseUnit > 0
-    ? cost / unitsPerPurchaseUnit
-    : cost;
+  const lotUnitsPerPurchaseUnit = Number(lot.purchase_qty_received || 0) > 0
+    ? Number(lot.original_qty || 0) / Number(lot.purchase_qty_received || 0)
+    : 0;
+  const unitsPerPurchaseUnit = Number(line.units_per_purchase_unit || lotUnitsPerPurchaseUnit || 1) || 1;
+  if (purchaseUnit && inventoryUnit && purchaseUnit !== inventoryUnit && unitsPerPurchaseUnit > 0) {
+    return (Number(currentQty || 0) / unitsPerPurchaseUnit) * cost;
+  }
+  return Number(currentQty || 0) * cost;
 }
 
 function isActiveRecord_(record) {

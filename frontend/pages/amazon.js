@@ -1,6 +1,6 @@
 import { inventorySnapshot, listAmazonOutboundActivity, lookupScan, recordAmazonOutbound } from "../js/api-smooth1.js?v=amazonout1";
 import { handleKeyboardScan } from "../js/scanner.js";
-import { escapeHtml, formToObject, notice, table } from "../js/utils.js";
+import { escapeHtml, formToObject, formatQuantity, notice, table } from "../js/utils.js";
 
 export async function render(ctx) {
   ctx.setTitle("Amazon Outbound", "Scan a lot and record stock leaving the warehouse for Amazon");
@@ -39,7 +39,7 @@ export async function render(ctx) {
           { label: "Time", render: (row) => escapeHtml(formatTime(row.timestamp)) },
           { label: "Product", render: (row) => escapeHtml(row.product?.product_name || row.product_id) },
           { label: "Lot", key: "internal_lot_id" },
-          { label: "Qty", render: (row) => escapeHtml(`${Math.abs(Number(row.qty_change || 0))} ${row.unit_type || ""}`) },
+          { label: "Qty", render: (row) => escapeHtml(`${formatQuantity(Math.abs(Number(row.qty_change || 0)))} ${row.unit_type || ""}`) },
           { label: "Reference", render: (row) => escapeHtml(row.related_amazon_order_id || "—") },
           { label: "By", key: "user_id" }
         ], activity)}
@@ -63,7 +63,7 @@ export async function render(ctx) {
     const packageCount = Number(row.lot?.purchase_qty_received || 0);
     const packageWeight = packageCount > 0 ? Number(row.lot?.original_qty || 0) / packageCount : 0;
     const packageName = row.lot?.purchase_unit_type || "case / bag";
-    form.elements.available_qty.value = `${row.available_qty} ${row.unit_type || ""}`;
+    form.elements.available_qty.value = `${formatQuantity(row.available_qty)} ${row.unit_type || ""}`;
     form.elements.unit_type.value = row.unit_type || row.lot?.unit_type || "";
     form.elements.package_weight_lbs.value = packageWeight || "";
     form.dataset.packageName = packageName;
@@ -71,7 +71,7 @@ export async function render(ctx) {
     updateQuantityFields(form);
     form.elements.quantity.focus();
     const packageHint = packageWeight ? ` One ${packageName} = ${packageWeight} LB.` : "";
-    result.innerHTML = `<strong>Ready:</strong> ${escapeHtml(row.product?.product_name || row.product_id)} — ${escapeHtml(String(row.available_qty))} ${escapeHtml(row.unit_type || "")} available.${escapeHtml(packageHint)}`;
+    result.innerHTML = `<strong>Ready:</strong> ${escapeHtml(row.product?.product_name || row.product_id)} — ${escapeHtml(formatQuantity(row.available_qty))} ${escapeHtml(row.unit_type || "")} available.${escapeHtml(packageHint)}`;
   };
 
   handleKeyboardScan(document.getElementById("amazonLotScan"), (value) => fillLot(value).catch((error) => notice(error.message)));

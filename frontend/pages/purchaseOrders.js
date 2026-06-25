@@ -1,6 +1,6 @@
 import { createPurchaseOrder, getPurchaseOrderDetail, listProducts, listPurchaseOrders, listSuppliers, purchaseOrderAction } from "../js/api-smooth1.js?v=parties1";
 import { can } from "../js/permissions.js";
-import { escapeHtml, notice, status, table } from "../js/utils.js";
+import { escapeHtml, formatMoney, formatQuantity, notice, status, table } from "../js/utils.js";
 
 const PURCHASE_UNITS = ["BOX", "CASE", "BAG", "PALLET", "EACH", "DRUM", "TOTE", "LB"];
 const SHIP_METHODS = [
@@ -603,10 +603,9 @@ function formatDate(value) {
 }
 
 function formatNumber(value) {
-  const number = Number(value || 0);
-  return Number.isInteger(number) ? String(number) : number.toFixed(2);
+  return formatQuantity(value);
 }
 
 function money(value) {
-  return `$${Number(value || 0).toFixed(2)}`;
+  return formatMoney(value);
 }

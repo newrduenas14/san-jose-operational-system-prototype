@@ -1,6 +1,6 @@
 import { createProduct, inventorySnapshot, listProducts, updateProductStatus } from "../js/api-smooth1.js?v=parties1";
 import { can } from "../js/permissions.js";
-import { enableTableSorting, escapeHtml, formToObject, notice, table } from "../js/utils.js";
+import { enableTableSorting, escapeHtml, formToObject, formatQuantity, notice, table } from "../js/utils.js";
 
 export async function render(ctx) {
   ctx.setTitle("Products", "Maintain the product master used across purchasing and inventory");
@@ -152,6 +152,5 @@ function isProductActive(row) {
 }
 
 function formatNumber(value) {
-  const number = Number(value || 0);
-  return Number.isInteger(number) ? String(number) : number.toFixed(2);
+  return formatQuantity(value);
 }

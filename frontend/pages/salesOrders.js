@@ -7,7 +7,7 @@ import {
   salesOrderAction
 } from "../js/api-smooth1.js?v=orders1";
 import { can } from "../js/permissions.js?v=orders1";
-import { escapeHtml, notice, status, table } from "../js/utils.js?v=orders1";
+import { escapeHtml, formatMoney, formatQuantity, notice, status, table } from "../js/utils.js?v=filters1";
 
 const SALES_UNITS = ["CASE", "BAG", "BOX", "LB", "EACH", "PALLET"];
 const SALES_CHANNELS = ["BULK", "AMAZON", "RETAIL", "DISTRIBUTOR", "OTHER"];
@@ -548,10 +548,9 @@ function formatDate(value) {
 }
 
 function formatNumber(value) {
-  const number = Number(value || 0);
-  return Number.isInteger(number) ? String(number) : number.toFixed(2);
+  return formatQuantity(value);
 }
 
 function money(value) {
-  return `$${Number(value || 0).toFixed(2)}`;
+  return formatMoney(value);
 }

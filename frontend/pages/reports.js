@@ -1,5 +1,5 @@
 import { getOperationalReports } from "../js/api-smooth1.js?v=parties1";
-import { escapeHtml, status, table } from "../js/utils.js";
+import { enableTableFilters, escapeHtml, formatMoney, formatQuantity, status, table } from "../js/utils.js";
 
 const REPORT_BLOCKS = [
   {
@@ -47,6 +47,7 @@ export async function render(ctx) {
   const detail = document.getElementById("reportDetail");
   const showReport = (id) => {
     detail.innerHTML = reportDetail(id, reports);
+    enableTableFilters(detail);
     document.querySelectorAll("[data-report-block]").forEach((button) => {
       button.classList.toggle("selected", button.dataset.reportBlock === id);
     });
@@ -97,15 +98,15 @@ function inventoryPlanning(reports) {
     ${table([
       { label: "Product", render: (row) => `${escapeHtml(row.product_name)}<br><small>${escapeHtml(row.product_id)}</small>` },
       { label: "Supplier", render: (row) => escapeHtml(row.supplier_name || row.supplier_id || "No supplier history") },
-      { label: "Current", key: "current_qty" },
-      { label: "Avg Daily Usage", key: "average_daily_usage" },
-      { label: "Std Daily Usage", key: "std_daily_usage" },
-      { label: "Avg Lead", key: "avg_lead_time_days" },
-      { label: "Std Lead", key: "std_lead_time_days" },
-      { label: "Demand During Lead", key: "demand_during_lead_time" },
-      { label: "Safety Stock", key: "safety_stock" },
-      { label: "Reorder Point", key: "reorder_point" },
-      { label: "Target Stock", key: "target_stock_level" },
+      { label: "Current", render: (row) => quantity(row.current_qty) },
+      { label: "Avg Daily Usage", render: (row) => quantity(row.average_daily_usage) },
+      { label: "Std Daily Usage", render: (row) => quantity(row.std_daily_usage) },
+      { label: "Avg Lead", render: (row) => quantity(row.avg_lead_time_days) },
+      { label: "Std Lead", render: (row) => quantity(row.std_lead_time_days) },
+      { label: "Demand During Lead", render: (row) => quantity(row.demand_during_lead_time) },
+      { label: "Safety Stock", render: (row) => quantity(row.safety_stock) },
+      { label: "Reorder Point", render: (row) => quantity(row.reorder_point) },
+      { label: "Target Stock", render: (row) => quantity(row.target_stock_level) },
       { label: "Status", render: (row) => status(row.status) }
     ], reports.inventoryPlanning)}
   `;
@@ -123,12 +124,12 @@ function supplierAnalytics(reports) {
       { label: "Supplier", render: supplierName },
       { label: "Contact", render: (row) => contact(row) },
       { label: "Products Bought", render: (row) => escapeHtml(row.products_bought || "No product history") },
-      { label: "Orders", key: "total_orders" },
-      { label: "Completed", key: "completed_orders" },
+      { label: "Orders", render: (row) => quantity(row.total_orders) },
+      { label: "Completed", render: (row) => quantity(row.completed_orders) },
       { label: "Purchase Amount", render: (row) => money(row.total_purchase_amount) },
       { label: "Spend Share", render: (row) => percent(row.spend_share_percent) },
-      { label: "Avg Lead", key: "avg_lead_time_days" },
-      { label: "Std Lead", key: "std_lead_time_days" },
+      { label: "Avg Lead", render: (row) => quantity(row.avg_lead_time_days) },
+      { label: "Std Lead", render: (row) => quantity(row.std_lead_time_days) },
       { label: "Quality", render: (row) => percent(row.quality_percent) },
       { label: "Product Accuracy", render: (row) => percent(row.product_accuracy_percent) },
       { label: "Qty Accuracy", render: (row) => percent(row.quantity_accuracy_percent) }
@@ -148,9 +149,9 @@ function recommendations(reports) {
       { label: "Action", key: "recommendation_type" },
       { label: "Product", render: (row) => `${escapeHtml(row.product_name)}<br><small>${escapeHtml(row.product_id)}</small>` },
       { label: "Supplier", render: (row) => escapeHtml(row.supplier_name || row.supplier_id || "No supplier history") },
-      { label: "Recommended Qty", key: "recommended_qty" },
-      { label: "Reorder Point", key: "reorder_point" },
-      { label: "Target", key: "target_stock_level" },
+      { label: "Recommended Qty", render: (row) => quantity(row.recommended_qty) },
+      { label: "Reorder Point", render: (row) => quantity(row.reorder_point) },
+      { label: "Target", render: (row) => quantity(row.target_stock_level) },
       { label: "Confidence", render: (row) => percent(Number(row.confidence_score || 0) * 100) },
       { label: "Reason", key: "reason_text" }
     ], reports.recommendations)}
@@ -169,10 +170,10 @@ function inventorySnapshot(reports) {
       { label: "Product", render: (row) => `${escapeHtml(row.product?.product_name || row.product_name || row.product_id)}<br><small>${escapeHtml(row.product_id)}</small>` },
       { label: "Lot", render: (row) => escapeHtml(row.internal_lot_id || "") },
       { label: "Location", render: (row) => escapeHtml(row.location_id || "") },
-      { label: "Qty", render: (row) => escapeHtml(row.current_qty ?? row.qty ?? 0) },
+      { label: "Qty", render: (row) => quantity(row.current_qty ?? row.qty ?? 0) },
       { label: "Unit", key: "unit_type" },
       { label: "Status", render: (row) => status(row.inventory_status || "AVAILABLE") },
-      { label: "Days Since Received", render: (row) => escapeHtml(row.days_since_received ?? "") },
+      { label: "Days Since Received", render: (row) => quantity(row.days_since_received ?? "") },
       { label: "Recommended Action", render: (row) => escapeHtml(row.recommended_action || "") }
     ], reports.inventorySnapshot)}
   `;
@@ -192,11 +193,16 @@ function contact(row) {
 }
 
 function money(value) {
-  return `$${Number(value || 0).toFixed(2)}`;
+  return formatMoney(value);
+}
+
+function quantity(value) {
+  if (value === "" || value === null || value === undefined) return "";
+  return formatQuantity(value);
 }
 
 function percent(value) {
-  return `${Number(value || 0).toFixed(1)}%`;
+  return `${formatQuantity(value, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 
 function formatDate(value) {

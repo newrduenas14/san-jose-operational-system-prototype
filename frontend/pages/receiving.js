@@ -1,6 +1,6 @@
 import { getPurchaseOrderDetail, listLocations, listPurchaseOrders, receiveProduct } from "../js/api-smooth1.js?v=parties1";
 import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=smooth1";
-import { escapeHtml, formToObject, notice } from "../js/utils.js";
+import { escapeHtml, formToObject, formatQuantity, notice } from "../js/utils.js";
 
 const RECEIVABLE_STATUSES = ["DRAFT", "SENT", "ORDERED", "IN_TRANSIT", "PARTIALLY_RECEIVED"];
 let activeOrder = null;
@@ -435,8 +435,7 @@ function qualityScore(status) {
 }
 
 function formatNumber(value) {
-  const number = Number(value || 0);
-  return Number.isInteger(number) ? String(number) : number.toFixed(2);
+  return formatQuantity(value);
 }
 
 function cssEscape(value) {

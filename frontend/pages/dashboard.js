@@ -1,6 +1,6 @@
 import { getDashboard } from "../js/api-smooth1.js?v=orders1";
 import { can } from "../js/permissions.js";
-import { escapeHtml, table } from "../js/utils.js";
+import { escapeHtml, formatMoney, formatQuantity, table } from "../js/utils.js";
 
 export async function render(ctx) {
   const metrics = await getDashboard();
@@ -114,9 +114,9 @@ function capacityCard(metrics) {
 }
 
 function money(value) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
+  return formatMoney(value);
 }
 
 function number(value) {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(Number(value || 0));
+  return formatQuantity(value, { maximumFractionDigits: 1 });
 }

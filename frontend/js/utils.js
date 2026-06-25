@@ -30,6 +30,12 @@ export function uid(prefix, list, key) {
 export function table(headers, rows) {
   if (!rows.length) return `<div class="empty">No records yet.</div>`;
   return `
+    <div class="table-tools">
+      <label>
+        <span>Filter</span>
+        <input class="table-filter" type="search" placeholder="Search table" autocomplete="off">
+      </label>
+    </div>
     <div class="table-wrap">
       <table>
         <thead><tr>${headers.map((h, index) => `
@@ -64,6 +70,23 @@ export function table(headers, rows) {
       </table>
     </div>
   `;
+}
+
+export function enableTableFilters(root = document) {
+  root.querySelectorAll(".table-filter").forEach((input) => {
+    if (input.dataset.filterReady) return;
+    input.dataset.filterReady = "true";
+    input.addEventListener("input", () => {
+      const tableWrap = input.closest(".table-tools")?.nextElementSibling;
+      const tbody = tableWrap?.querySelector("tbody");
+      if (!tbody) return;
+
+      const query = input.value.trim().toLowerCase();
+      Array.from(tbody.rows).forEach((row) => {
+        row.hidden = query && !row.textContent.toLowerCase().includes(query);
+      });
+    });
+  });
 }
 
 export function enableTableSorting(root = document) {
@@ -109,6 +132,23 @@ export function enableTableSorting(root = document) {
       button.classList.add(direction === "desc" ? "sort-desc" : "sort-asc");
     });
   });
+}
+
+export function formatMoney(value, options = {}) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: options.currency || "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(Number(value || 0));
+}
+
+export function formatQuantity(value, options = {}) {
+  const number = Number(value || 0);
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: options.minimumFractionDigits ?? 0,
+    maximumFractionDigits: options.maximumFractionDigits ?? 2
+  }).format(number);
 }
 
 export function status(value) {

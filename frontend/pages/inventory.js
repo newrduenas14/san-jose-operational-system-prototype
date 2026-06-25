@@ -1,6 +1,6 @@
 import { inventorySnapshot, lookupScan, recordInventoryMovement } from "../js/api-smooth1.js?v=parties1";
 import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=smooth1";
-import { escapeHtml, formToObject, notice, table } from "../js/utils.js";
+import { escapeHtml, formToObject, formatQuantity, notice, table } from "../js/utils.js";
 
 export async function render(ctx) {
   ctx.setTitle("Inventory Lookup", "Inventory is calculated from movement records");
@@ -44,7 +44,7 @@ export async function render(ctx) {
           { label: "Internal Lot", key: "internal_lot_id" },
           { label: "Supplier Lot", render: (row) => escapeHtml(row.lot?.supplier_lot_number || "") },
           { label: "Location", key: "location_id" },
-          { label: "Qty", key: "qty" },
+          { label: "Qty", render: (row) => formatQuantity(row.qty) },
           { label: "Purchase Units", render: (row) => escapeHtml(purchaseUnits(row)) },
           { label: "Base Unit", key: "unit_type" }
         ], rows)}
@@ -92,7 +92,7 @@ function purchaseUnits(row) {
   const purchaseUnit = lot.purchase_unit_type || "";
   if (!weightPerUnit || !purchaseUnit) return "—";
   const units = Number(row.qty || 0) / weightPerUnit;
-  return `${units.toFixed(units % 1 ? 2 : 0)} ${purchaseUnit}`;
+  return `${formatQuantity(units)} ${purchaseUnit}`;
 }
 
 function fillMovementForm(lot) {
