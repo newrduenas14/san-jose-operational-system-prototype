@@ -22,6 +22,10 @@ export async function render(ctx) {
             <button id="clearOpeningLocations" class="btn secondary" type="button">Clear</button>
             <span id="openingLocationCount" class="field-hint">0 selected</span>
           </div>
+          <label class="switch opening-use-all">
+            <input id="openingUseAllSpaces" type="checkbox">
+            <span>Use all available spaces</span>
+          </label>
           <select id="openingLocations" name="location_ids" multiple required size="${Math.min(Math.max(spaces.length, 4), 10)}">
             ${spaces.map((location) => `<option value="${escapeHtml(location.location_id)}">${escapeHtml(location.location_id)}</option>`).join("")}
           </select>
@@ -53,9 +57,10 @@ export async function render(ctx) {
   const lotSelect = document.getElementById("openingLot");
   const locationSelect = document.getElementById("openingLocations");
   const locationCount = document.getElementById("openingLocationCount");
+  const useAllSpaces = document.getElementById("openingUseAllSpaces");
 
   const updateLocationCount = () => {
-    const count = locationSelect.selectedOptions.length;
+    const count = useAllSpaces.checked ? locationSelect.options.length : locationSelect.selectedOptions.length;
     locationCount.textContent = `${count} selected`;
   };
 
@@ -78,12 +83,22 @@ export async function render(ctx) {
 
   productInput.addEventListener("change", refreshLots);
   productInput.addEventListener("input", refreshLots);
-  locationSelect.addEventListener("change", updateLocationCount);
-  document.getElementById("selectAllOpeningLocations").addEventListener("click", () => {
-    Array.from(locationSelect.options).forEach((option) => { option.selected = true; });
+  locationSelect.addEventListener("change", () => {
+    useAllSpaces.checked = locationSelect.selectedOptions.length === locationSelect.options.length;
     updateLocationCount();
   });
+  useAllSpaces.addEventListener("change", () => {
+    Array.from(locationSelect.options).forEach((option) => { option.selected = useAllSpaces.checked; });
+    updateLocationCount();
+  });
+  document.getElementById("selectAllOpeningLocations").addEventListener("click", () => {
+    useAllSpaces.checked = true;
+    Array.from(locationSelect.options).forEach((option) => { option.selected = true; });
+    updateLocationCount();
+    notice(`${locationSelect.options.length} available spaces selected.`);
+  });
   document.getElementById("clearOpeningLocations").addEventListener("click", () => {
+    useAllSpaces.checked = false;
     Array.from(locationSelect.options).forEach((option) => { option.selected = false; });
     updateLocationCount();
   });
@@ -97,7 +112,7 @@ export async function render(ctx) {
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const locationIds = Array.from(locationSelect.selectedOptions).map((option) => option.value);
+    const locationIds = Array.from(useAllSpaces.checked ? locationSelect.options : locationSelect.selectedOptions).map((option) => option.value);
     if (!locationIds.length) {
       notice("Select at least one available space.");
       return;
