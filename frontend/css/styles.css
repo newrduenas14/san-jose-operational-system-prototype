@@ -399,6 +399,35 @@ button {
   margin-top: 3px;
 }
 
+.sales-allocation-preview {
+  background: #f7faf8;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+  margin-top: 12px;
+  padding: 11px 12px;
+}
+
+.sales-allocation-summary {
+  font-weight: 800;
+  margin-bottom: 7px;
+}
+
+.sales-allocation-summary.is-short {
+  color: var(--danger);
+}
+
+.sales-allocation-list {
+  display: grid;
+  gap: 5px;
+}
+
+.sales-allocation-list small {
+  color: var(--muted);
+}
+
 .sales-order-footer {
   align-items: flex-end;
 }

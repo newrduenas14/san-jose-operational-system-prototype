@@ -19,10 +19,11 @@ export async function render(ctx) {
   const [orders, parties, inventoryRows] = await Promise.all([listSalesOrders(), listSuppliers(), inventorySnapshot()]);
   const customers = parties.filter(isActive).filter(isCustomer);
   const inventoryChoices = buildInventoryChoices(inventoryRows);
+  const productChoices = buildProductChoices(inventoryChoices);
 
   ctx.view.innerHTML = `
     <div class="grid">
-      ${can(ctx.user, "salesOrders:create") ? salesOrderForm(customers, inventoryChoices) : ""}
+      ${can(ctx.user, "salesOrders:create") ? salesOrderForm(customers, productChoices) : ""}
       <section class="panel">
         <div class="panel-header">
           <div>
@@ -44,17 +45,17 @@ export async function render(ctx) {
     </div>
   `;
 
-  setupSalesOrderBuilder(ctx, customers, inventoryChoices);
+  setupSalesOrderBuilder(ctx, customers, inventoryChoices, productChoices);
   setupSalesOrderActions(ctx);
 }
 
-function salesOrderForm(customers, inventoryChoices) {
+function salesOrderForm(customers, productChoices) {
   return `
     <section class="panel po-builder sales-order-builder">
       <div class="panel-header">
         <div>
           <h2>Create Sales Order</h2>
-          <p class="muted">Inventory is allocated by lot and location. Recommended rows follow FEFO.</p>
+          <p class="muted">Choose the product once. The app recommends the FEFO lots needed to cover the order.</p>
         </div>
       </div>
       <form id="salesOrderForm">
@@ -98,10 +99,10 @@ function salesOrderForm(customers, inventoryChoices) {
         </div>
 
         <div class="po-lines-heading">
-          <h3>Inventory Allocations</h3>
-          <button id="addSalesLine" class="btn secondary" type="button">Add Inventory</button>
+          <h3>Products Ordered</h3>
+          <button id="addSalesLine" class="btn secondary" type="button">Add Product</button>
         </div>
-        ${inventoryChoices.length ? "" : `<div class="empty">No sellable inventory is currently available.</div>`}
+        ${productChoices.length ? "" : `<div class="empty">No sellable inventory is currently available.</div>`}
         <div id="salesLineItems" class="po-line-items"></div>
 
         <div class="po-footer sales-order-footer">
@@ -112,23 +113,24 @@ function salesOrderForm(customers, inventoryChoices) {
             <div><span>Estimated Gross Margin</span><strong id="salesMargin">0.00%</strong></div>
             <div class="po-grand-total"><span>Total</span><strong id="salesTotal">$0.00</strong></div>
           </div>
-          <button class="btn" type="submit" ${inventoryChoices.length ? "" : "disabled"}>Create Sales Order</button>
+          <button class="btn" type="submit" ${productChoices.length ? "" : "disabled"}>Create Sales Order</button>
         </div>
       </form>
     </section>
   `;
 }
 
-function setupSalesOrderBuilder(ctx, customers, inventoryChoices) {
+function setupSalesOrderBuilder(ctx, customers, inventoryChoices, productChoices) {
   const form = document.getElementById("salesOrderForm");
   if (!form) return;
   const container = document.getElementById("salesLineItems");
   const customerMap = new Map(customers.map((customer) => [customer.supplier_id, customer]));
   const choiceMap = new Map(inventoryChoices.map((choice) => [choice.key, choice]));
-  if (inventoryChoices.length) appendSalesLine(container, inventoryChoices);
+  const productMap = new Map(productChoices.map((product) => [product.productId, product]));
+  if (productChoices.length) appendSalesLine(container, productChoices);
 
   document.getElementById("addSalesLine")?.addEventListener("click", () => {
-    appendSalesLine(container, inventoryChoices);
+    appendSalesLine(container, productChoices);
     updateSalesRemoveButtons(container);
   });
   form.addEventListener("click", (event) => {
@@ -148,14 +150,14 @@ function setupSalesOrderBuilder(ctx, customers, inventoryChoices) {
       form.elements.tax_rate_percent.disabled = !event.target.checked;
     }
     const line = event.target.closest(".po-line-item");
-    if (line && event.target.matches("[data-inventory-choice]")) applyInventoryChoice(line, choiceMap.get(event.target.value));
+    if (line && event.target.matches("[data-product-choice]")) applyProductChoice(line, productMap.get(event.target.value), inventoryChoices);
     if (line && event.target.matches('[data-line-field="unit_type"]')) applySalesUnit(line);
-    if (line) updateSalesLine(line);
+    if (line) updateSalesLine(line, inventoryChoices);
     updateSalesTotals(form);
   });
   form.addEventListener("input", (event) => {
     const line = event.target.closest(".po-line-item");
-    if (line) updateSalesLine(line);
+    if (line) updateSalesLine(line, inventoryChoices);
     updateSalesTotals(form);
   });
   form.addEventListener("submit", async (event) => {
@@ -171,85 +173,133 @@ function setupSalesOrderBuilder(ctx, customers, inventoryChoices) {
   });
 }
 
-function appendSalesLine(container, inventoryChoices) {
+function appendSalesLine(container, productChoices) {
   const lineId = `draft-sales-line-${nextSalesLineId++}`;
   container.insertAdjacentHTML("beforeend", `
     <section class="po-line-item sales-line-item" data-draft-line-id="${lineId}">
       <div class="po-line-title">
-        <strong>Inventory</strong>
+        <strong>Product</strong>
         <button class="po-remove-line" data-remove-sales-line type="button" aria-label="Remove inventory" title="Remove inventory">&times;</button>
       </div>
       <div class="sales-line-grid">
         <div class="field sales-inventory-field">
-          <label>Product Search / Inventory</label>
-          <select data-inventory-choice required>
-            <option value="">Select available inventory</option>
-            ${inventoryChoices.map((choice) => `<option value="${escapeHtml(choice.key)}">${escapeHtml(choice.label)}</option>`).join("")}
+          <label>Product</label>
+          <select data-product-choice required>
+            <option value="">Select product</option>
+            ${productChoices.map((product) => `<option value="${escapeHtml(product.productId)}">${escapeHtml(product.productName)} | ${formatNumber(product.availableLb)} LB available</option>`).join("")}
           </select>
         </div>
-        <div class="field"><label>Internal Lot ID</label><input data-allocation-field="lot" readonly></div>
-        <div class="field"><label>Location ID</label><input data-allocation-field="location" readonly></div>
         <div class="field"><label>Quantity Sold</label><input data-line-field="qty_ordered" type="number" min="0.01" step="0.01" value="1" required></div>
         <div class="field">
           <label>Sales Unit</label>
           <select data-line-field="unit_type" required>${SALES_UNITS.map((unit) => `<option>${unit}</option>`).join("")}</select>
         </div>
-        <div class="field"><label>Unit Weight Lbs</label><input data-line-field="unit_weight_lbs" type="number" min="0.01" step="0.01" value="1" required></div>
+        <div class="field"><label>Weight Per Unit (LB)</label><input data-line-field="unit_weight_lbs" type="number" min="0.01" step="0.01" value="1" required></div>
         <div class="field"><label>Unit Price</label><input data-line-field="unit_price" type="number" min="0" step="0.01" value="0" required></div>
-        <div class="field"><label>Unit Cost</label><input data-line-field="unit_cost" type="number" step="0.0001" value="0" readonly></div>
+        <div class="field"><label>Est. Unit Cost</label><input data-line-field="unit_cost" type="number" step="0.0001" value="0" readonly></div>
       </div>
       <div class="sales-line-facts">
-        <span>Available <strong data-available>0</strong></span>
-        <span>Expires <strong data-expiration>Not dated</strong></span>
-        <span>FEFO <strong data-fefo>Choose inventory</strong></span>
+        <span>Available <strong data-available>Choose product</strong></span>
+        <span>Total Weight <strong data-total-weight>0 LB</strong></span>
+        <span>FEFO Lots <strong data-fefo>Choose product</strong></span>
         <span>Line Total <strong data-line-total>$0.00</strong></span>
         <span>Gross Profit <strong data-line-profit>$0.00</strong></span>
       </div>
+      <div class="sales-allocation-preview" data-allocation-preview>Choose a product to see recommended lots.</div>
     </section>
   `);
   updateSalesRemoveButtons(container);
 }
 
-function applyInventoryChoice(line, choice) {
-  if (!choice) return;
-  line.dataset.inventoryKey = choice.key;
-  line.dataset.productId = choice.productId;
-  line.dataset.inventoryUnit = choice.inventoryUnit;
-  line.dataset.availableInventoryQty = String(choice.availableInventoryQty);
-  line.dataset.availableSalesQty = String(choice.availableSalesQty);
-  line.dataset.baseUnitCost = String(choice.baseUnitCost);
-  line.querySelector('[data-allocation-field="lot"]').value = choice.lotId;
-  line.querySelector('[data-allocation-field="location"]').value = choice.locationId;
-  line.querySelector('[data-line-field="unit_type"]').value = choice.salesUnit;
-  line.querySelector('[data-line-field="unit_weight_lbs"]').value = formatNumber(choice.unitWeight);
-  line.querySelector('[data-line-field="unit_cost"]').value = choice.unitCost.toFixed(4);
-  line.querySelector("[data-available]").textContent = `${formatNumber(choice.availableSalesQty)} ${choice.salesUnit}`;
-  line.querySelector("[data-expiration]").textContent = choice.expirationDate || "Not dated";
-  line.querySelector("[data-fefo]").textContent = choice.recommended ? "Recommended" : "Manual override";
-  updateSalesLine(line);
+function applyProductChoice(line, product, inventoryChoices) {
+  if (!product) {
+    line.dataset.productId = "";
+    line.querySelector("[data-available]").textContent = "Choose product";
+    line.querySelector("[data-fefo]").textContent = "Choose product";
+    line.querySelector("[data-allocation-preview]").textContent = "Choose a product to see recommended lots.";
+    updateSalesLine(line, inventoryChoices);
+    return;
+  }
+  line.dataset.productId = product.productId;
+  line.dataset.productName = product.productName;
+  line.querySelector('[data-line-field="unit_type"]').value = product.defaultSalesUnit;
+  line.querySelector('[data-line-field="unit_weight_lbs"]').value = formatNumber(product.defaultUnitWeight);
+  line.querySelector("[data-available]").textContent = `${formatNumber(product.availableLb)} LB across ${product.lotCount} lot${product.lotCount === 1 ? "" : "s"}`;
+  updateSalesLine(line, inventoryChoices);
 }
 
 function applySalesUnit(line) {
   const unit = line.querySelector('[data-line-field="unit_type"]').value;
   const weightInput = line.querySelector('[data-line-field="unit_weight_lbs"]');
   if (unit === "LB") weightInput.value = "1";
-  const weight = Number(weightInput.value || 1);
-  const baseCost = Number(line.dataset.baseUnitCost || 0);
-  line.querySelector('[data-line-field="unit_cost"]').value = (baseCost * weight).toFixed(4);
 }
 
-function updateSalesLine(line) {
+function updateSalesLine(line, inventoryChoices = []) {
   const qty = numericLineValue(line, "qty_ordered");
   const unitPrice = numericLineValue(line, "unit_price");
-  const unitCost = numericLineValue(line, "unit_cost");
   const weight = numericLineValue(line, "unit_weight_lbs");
-  const unit = line.querySelector('[data-line-field="unit_type"]').value;
-  const baseCost = Number(line.dataset.baseUnitCost || 0);
-  line.querySelector('[data-line-field="unit_cost"]').value = (baseCost * (unit === "LB" ? 1 : weight)).toFixed(4);
-  const updatedCost = numericLineValue(line, "unit_cost");
+  const totalWeight = qty * weight;
+  const recommendation = recommendLotsForLine(line, inventoryChoices);
+  const updatedCost = recommendation.unitCost;
+  line.querySelector('[data-line-field="unit_cost"]').value = updatedCost.toFixed(4);
+  line.querySelector("[data-total-weight]").textContent = `${formatNumber(totalWeight)} LB`;
+  line.querySelector("[data-fefo]").textContent = recommendation.status;
+  line.querySelector("[data-allocation-preview]").innerHTML = recommendation.html;
   line.querySelector("[data-line-total]").textContent = money(qty * unitPrice);
   line.querySelector("[data-line-profit]").textContent = money(qty * (unitPrice - updatedCost));
   updateSalesTotals(document.getElementById("salesOrderForm"));
+}
+
+function recommendLotsForLine(line, inventoryChoices) {
+  const productId = line.dataset.productId || "";
+  const qty = numericLineValue(line, "qty_ordered");
+  const unit = line.querySelector('[data-line-field="unit_type"]').value;
+  const weight = numericLineValue(line, "unit_weight_lbs");
+  const neededWeight = qty * weight;
+  if (!productId) return { unitCost: 0, status: "Choose product", html: "Choose a product to see recommended lots." };
+  if (qty <= 0 || weight <= 0) return { unitCost: 0, status: "Enter quantity", html: "Enter a quantity and weight to calculate lot recommendations." };
+
+  const candidates = inventoryChoices
+    .filter((choice) => choice.productId === productId && choice.inventoryUnit === "LB")
+    .sort(compareFefoChoices);
+  const allocations = [];
+  let remainingWeight = neededWeight;
+  let totalCost = 0;
+
+  candidates.forEach((choice) => {
+    if (remainingWeight <= 0.0001) return;
+    const allocatedWeight = Math.min(remainingWeight, choice.availableInventoryQty);
+    if (allocatedWeight <= 0) return;
+    const allocatedUnits = allocatedWeight / weight;
+    totalCost += allocatedWeight * choice.baseUnitCost;
+    allocations.push({ choice, allocatedWeight, allocatedUnits });
+    remainingWeight -= allocatedWeight;
+  });
+
+  if (!allocations.length) {
+    return { unitCost: 0, status: "No stock", html: "No available sellable lots for this product." };
+  }
+
+  const averageUnitCost = neededWeight > 0 ? totalCost / qty : 0;
+  const short = remainingWeight > 0.0001;
+  const html = `
+    <div class="sales-allocation-summary ${short ? "is-short" : ""}">
+      ${short
+        ? `Short ${escapeHtml(formatNumber(remainingWeight))} LB. Available lots cover ${escapeHtml(formatNumber(neededWeight - remainingWeight))} of ${escapeHtml(formatNumber(neededWeight))} LB.`
+        : `Recommended FEFO split covers ${escapeHtml(formatNumber(qty))} ${escapeHtml(unit)} (${escapeHtml(formatNumber(neededWeight))} LB).`}
+    </div>
+    <div class="sales-allocation-list">
+      ${allocations.map(({ choice, allocatedWeight, allocatedUnits }) => {
+        const originalUnits = choice.unitWeight > 0 ? allocatedWeight / choice.unitWeight : 0;
+        return `<span>${escapeHtml(choice.lotId)} @ ${escapeHtml(choice.locationId)}: ${escapeHtml(formatNumber(allocatedUnits))} ${escapeHtml(unit)} / ${escapeHtml(formatNumber(allocatedWeight))} LB <small>(${escapeHtml(formatNumber(originalUnits))} ${escapeHtml(choice.salesUnit)} from lot)</small></span>`;
+      }).join("")}
+    </div>
+  `;
+  return {
+    unitCost: averageUnitCost,
+    status: short ? "Short stock" : `${allocations.length} lot${allocations.length === 1 ? "" : "s"}`,
+    html
+  };
 }
 
 function updateSalesTotals(form) {
@@ -275,8 +325,8 @@ function collectSalesOrder(form, choiceMap) {
   if (!form.elements.customer_id.value) throw new Error("Select a customer.");
   const allocatedByChoice = new Map();
   const lines = Array.from(form.querySelectorAll(".sales-line-item")).flatMap((line, index) => {
-    const choice = choiceMap.get(line.querySelector("[data-inventory-choice]").value);
-    if (!choice) throw new Error(`Select inventory on line ${index + 1}.`);
+    const productId = line.querySelector("[data-product-choice]").value;
+    if (!productId) throw new Error(`Select a product on line ${index + 1}.`);
     const qty = numericLineValue(line, "qty_ordered");
     const unit = line.querySelector('[data-line-field="unit_type"]').value;
     const weight = numericLineValue(line, "unit_weight_lbs");
@@ -284,7 +334,7 @@ function collectSalesOrder(form, choiceMap) {
     if (qty <= 0) throw new Error(`Quantity must be greater than zero on line ${index + 1}.`);
     if (weight <= 0) throw new Error(`Unit weight must be greater than zero on line ${index + 1}.`);
     if (price < 0) throw new Error(`Unit price cannot be negative on line ${index + 1}.`);
-    return allocateFefoLots(choice, qty, unit, weight, price, choiceMap, allocatedByChoice, index + 1);
+    return allocateFefoLots(productId, qty, unit, weight, price, choiceMap, allocatedByChoice, index + 1);
   });
   return {
     customer_id: form.elements.customer_id.value,
@@ -301,28 +351,21 @@ function collectSalesOrder(form, choiceMap) {
   };
 }
 
-function allocateFefoLots(selectedChoice, requestedQty, unit, weight, price, choiceMap, allocatedByChoice, lineNumber) {
-  const sameVariation = Array.from(choiceMap.values()).filter((choice) =>
-    choice.productId === selectedChoice.productId
-    && choice.salesUnit === selectedChoice.salesUnit
-    && Math.abs(choice.unitWeight - selectedChoice.unitWeight) < 0.001
-  );
-  const candidates = selectedChoice.recommended
-    ? sameVariation
-    : [selectedChoice, ...sameVariation.filter((choice) => choice.key !== selectedChoice.key)];
+function allocateFefoLots(productId, requestedQty, unit, weight, price, choiceMap, allocatedByChoice, lineNumber) {
+  const candidates = Array.from(choiceMap.values())
+    .filter((choice) => choice.productId === productId && choice.inventoryUnit === "LB")
+    .sort(compareFefoChoices);
   const allocations = [];
-  let remainingQty = requestedQty;
+  let remainingWeight = requestedQty * weight;
 
   candidates.forEach((choice) => {
-    if (remainingQty <= 0.0001) return;
-    const conversion = choice.inventoryUnit === unit ? 1 : weight;
+    if (remainingWeight <= 0.0001) return;
     const alreadyAllocated = allocatedByChoice.get(choice.key) || 0;
-    const remainingInventoryQty = Math.max(0, choice.availableInventoryQty - alreadyAllocated);
-    const availableSalesQty = remainingInventoryQty / conversion;
-    const allocatedSalesQty = Math.min(remainingQty, availableSalesQty);
-    if (allocatedSalesQty <= 0) return;
-    const inventoryQty = allocatedSalesQty * conversion;
-    allocatedByChoice.set(choice.key, alreadyAllocated + inventoryQty);
+    const availableWeight = Math.max(0, choice.availableInventoryQty - alreadyAllocated);
+    const allocatedWeight = Math.min(remainingWeight, availableWeight);
+    if (allocatedWeight <= 0) return;
+    const allocatedSalesQty = allocatedWeight / weight;
+    allocatedByChoice.set(choice.key, alreadyAllocated + allocatedWeight);
     allocations.push({
       product_id: choice.productId,
       internal_lot_id: choice.lotId,
@@ -331,13 +374,13 @@ function allocateFefoLots(selectedChoice, requestedQty, unit, weight, price, cho
       unit_type: unit,
       unit_weight_lbs: weight,
       unit_price: price,
-      unit_cost: choice.baseUnitCost * conversion
+      unit_cost: choice.baseUnitCost * weight
     });
-    remainingQty -= allocatedSalesQty;
+    remainingWeight -= allocatedWeight;
   });
 
-  if (remainingQty > 0.0001) {
-    throw new Error(`Line ${lineNumber} exceeds all available FEFO inventory for this product and pack variation.`);
+  if (remainingWeight > 0.0001) {
+    throw new Error(`Line ${lineNumber} needs ${formatNumber(requestedQty * weight)} LB, but only ${formatNumber(requestedQty * weight - remainingWeight)} LB is available for this product.`);
   }
   return allocations;
 }
@@ -391,6 +434,38 @@ function buildInventoryChoices(rows) {
     choice.label = `${choice.recommended ? "[RECOMMENDED] " : ""}${choice.productName} | ${choice.lotId} | ${formatNumber(choice.unitWeight)} LB ${choice.salesUnit} | ${choice.locationId} | ${formatNumber(choice.availableSalesQty)} available | ${choice.expirationDate || "No expiration"}`;
   });
   return choices;
+}
+
+function buildProductChoices(inventoryChoices) {
+  const products = new Map();
+  inventoryChoices.forEach((choice) => {
+    if (choice.inventoryUnit !== "LB") return;
+    const current = products.get(choice.productId) || {
+      productId: choice.productId,
+      productName: choice.productName,
+      availableLb: 0,
+      lotCount: 0,
+      defaultSalesUnit: choice.salesUnit || "CASE",
+      defaultUnitWeight: choice.unitWeight || 1
+    };
+    current.availableLb += choice.availableInventoryQty;
+    current.lotCount += 1;
+    if (choice.recommended) {
+      current.defaultSalesUnit = choice.salesUnit || current.defaultSalesUnit;
+      current.defaultUnitWeight = choice.unitWeight || current.defaultUnitWeight;
+    }
+    products.set(choice.productId, current);
+  });
+  return Array.from(products.values())
+    .map((product) => ({ ...product, availableLb: Number(product.availableLb.toFixed(4)) }))
+    .sort((a, b) => a.productName.localeCompare(b.productName));
+}
+
+function compareFefoChoices(a, b) {
+  return a.expirationSort - b.expirationSort
+    || a.receivedSort - b.receivedSort
+    || a.lotId.localeCompare(b.lotId)
+    || a.locationId.localeCompare(b.locationId);
 }
 
 function setupSalesOrderActions(ctx) {
