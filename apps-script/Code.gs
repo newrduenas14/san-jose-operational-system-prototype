@@ -59,6 +59,7 @@ function handleApiRequest_(action, payloadText, callback) {
     const payload = payloadText ? JSON.parse(payloadText) : {};
     const routes = {
       getDashboard,
+      authenticateUser,
       listProducts,
       listLots,
       createOpeningInventory,
@@ -146,11 +147,13 @@ function createOpeningInventory(payload) {
   const weight = Number(input.purchase_unit_weight || 0);
   const locationIds = normalizeOpeningLocationIds_(input);
   const allLocations = readTable_("LOCATIONS");
+  const occupiedLocationIds = occupiedInventoryLocationIds_();
   const locations = locationIds.map((locationId) => allLocations.find((row) => row.location_id === locationId || row.qr_value === locationId));
   if (!name || !isFinite(qty) || qty <= 0 || !isFinite(weight) || weight <= 0 || !locations.length || locations.some((location) => !location)) {
     throw new Error("Complete product, quantity, weight, and inventory space.");
   }
   if (locations.some((location) => String(location.current_status || "AVAILABLE").toUpperCase() !== "AVAILABLE")) throw new Error("Choose only available inventory spaces.");
+  if (locations.some((location) => occupiedLocationIds[location.location_id])) throw new Error("Choose only empty inventory spaces.");
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
@@ -197,10 +200,30 @@ function normalizeOpeningLocationIds_(input) {
   });
 }
 
+function occupiedInventoryLocationIds_() {
+  const snapshots = buildInventorySnapshot_(readTable_("PRODUCTS"), readTable_("LOTS"), readTable_("INVENTORY_MOVEMENTS"));
+  return snapshots.reduce((occupied, row) => {
+    if (Number(row.current_qty || 0) > 0 && row.location_id) occupied[row.location_id] = true;
+    return occupied;
+  }, {});
+}
+
 function listUsers() {
   return readTable_("USERS")
     .filter((user) => user.is_active !== false && String(user.is_active || "").toUpperCase() !== "FALSE")
     .sort((a, b) => String(a.full_name || "").localeCompare(String(b.full_name || "")));
+}
+
+function authenticateUser(payload) {
+  payload = payload || {};
+  const username = normalizeUsername_(payload.username);
+  const pin = String(payload.pin || "").trim();
+  const user = readTable_("USERS").find((item) =>
+    isActiveRecord_(item)
+    && normalizeUsername_(item.username || item.user_id) === username
+  );
+  if (!user || String(user.pin || "") !== pin) throw new Error("Username or code does not match.");
+  return sessionUser_(user);
 }
 
 function createUser(payload) {
@@ -209,20 +232,24 @@ function createUser(payload) {
   if (String(actor.role || "").toUpperCase() !== "ADMIN") throw new Error("Only an Admin can create users.");
   const input = payload.input || {};
   const fullName = String(input.full_name || "").trim();
-  const email = String(input.email || "").trim();
+  const username = normalizeUsername_(input.username);
+  const pin = String(input.pin || "").trim();
   const role = String(input.role || "OPERATOR").toUpperCase();
   if (!fullName) throw new Error("Full name is required.");
-  if (!email) throw new Error("Email is required.");
+  if (!username) throw new Error("Username is required.");
+  if (!/^\d{4}$/.test(pin)) throw new Error("PIN must be exactly 4 digits.");
   if (["ADMIN", "MANAGER", "OPERATOR"].indexOf(role) < 0) throw new Error("Choose a valid role.");
-  ensureTableColumns_("USERS", ["full_name", "email", "role", "device_assigned", "is_active", "created_at"]);
+  ensureTableColumns_("USERS", ["full_name", "username", "pin", "email", "role", "device_assigned", "is_active", "created_at"]);
   const users = readTable_("USERS");
-  if (users.some((item) => String(item.email || "").toLowerCase() === email.toLowerCase())) {
-    throw new Error("A user with that email already exists.");
+  if (users.some((item) => normalizeUsername_(item.username || item.user_id) === username)) {
+    throw new Error("A user with that username already exists.");
   }
   const record = {
     user_id: nextId_("USERS", "user_id", "USR"),
     full_name: fullName,
-    email: email,
+    username: username,
+    pin: pin,
+    email: input.email || "",
     role: role,
     device_assigned: input.device_assigned || "",
     is_active: true,
@@ -230,6 +257,20 @@ function createUser(payload) {
   };
   appendRecord_("USERS", record);
   return record;
+}
+
+function normalizeUsername_(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function sessionUser_(user) {
+  return {
+    authenticated: true,
+    user_id: user.user_id,
+    username: user.username || user.user_id,
+    full_name: user.full_name || user.username || user.user_id,
+    role: String(user.role || "OPERATOR").toUpperCase()
+  };
 }
 
 function createProduct(payload) {

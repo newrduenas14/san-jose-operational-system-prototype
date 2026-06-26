@@ -1,5 +1,5 @@
 import { warmOperationalCache } from "./api-smooth1.js?v=inventoryvalue1";
-import { getSession, signIn, signOut } from "./auth.js?v=login1";
+import { getSession, signIn, signOut } from "./auth.js?v=users2";
 import { renderNavigation, renderRoute, configureRouter } from "./router.js?v=orders1";
 import { allowedPages } from "./permissions.js?v=orders1";
 import { enableTableFilters } from "./utils.js?v=filters1";
@@ -15,7 +15,7 @@ import * as inventory from "../pages/inventory.js?v=refine1";
 import * as scanner from "../pages/scannerTest.js?v=parties1";
 import * as amazon from "../pages/amazon.js?v=refine1";
 import * as reports from "../pages/reports.js?v=refine1";
-import * as admin from "../pages/admin.js?v=team1";
+import * as admin from "../pages/admin.js?v=users2";
 
 const view = document.getElementById("view");
 const title = document.getElementById("pageTitle");
@@ -123,26 +123,10 @@ function showApp() {
   window.setTimeout(warmOperationalCache, 1000);
 }
 
-let selectedLoginRole = "";
-document.querySelectorAll("[data-login-role]").forEach((button) => {
-  button.addEventListener("click", () => {
-    selectedLoginRole = button.dataset.loginRole;
-    document.getElementById("loginScreen").classList.add("unlocking");
-    document.getElementById("loginChoices").hidden = true;
-    document.getElementById("pinForm").hidden = false;
-    document.getElementById("pinRoleLabel").textContent = `${selectedLoginRole} ACCESS`;
-    document.getElementById("pinError").textContent = "";
-    document.getElementById("pinInput").focus();
-  });
-});
-document.getElementById("backToRoles").addEventListener("click", () => {
-  document.getElementById("loginScreen").classList.remove("unlocking");
-  document.getElementById("pinForm").hidden = true;
-  document.getElementById("loginChoices").hidden = false;
-});
-function completeLogin() {
+async function completeLogin() {
   try {
-    user = signIn(selectedLoginRole, document.getElementById("pinInput").value);
+    document.getElementById("pinError").textContent = "";
+    user = await signIn(document.getElementById("usernameInput").value, document.getElementById("pinInput").value);
     showApp();
   } catch (error) {
     document.getElementById("pinError").textContent = error.message;
@@ -159,11 +143,12 @@ document.getElementById("signOutButton").addEventListener("click", () => {
   user = null;
   document.getElementById("app").hidden = true;
   document.getElementById("loginScreen").hidden = false;
-  document.getElementById("loginScreen").classList.remove("unlocking");
-  document.getElementById("pinForm").hidden = true;
-  document.getElementById("loginChoices").hidden = false;
+  document.getElementById("usernameInput").focus();
 });
 
 configureRouter(routes, renderAppRoute);
 if (user) showApp();
-else document.body.classList.add("login-mode");
+else {
+  document.body.classList.add("login-mode");
+  document.getElementById("usernameInput").focus();
+}

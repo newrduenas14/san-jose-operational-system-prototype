@@ -7,6 +7,7 @@ const APPS_CACHE_PREFIX = "sjops.apps.cache.";
 const APPS_CACHE_TTL_MS = 45000;
 const READ_ACTIONS = new Set([
   "getDashboard",
+  "authenticateUser",
   "listProducts",
   "listUsers",
   "listSuppliers",
@@ -222,6 +223,20 @@ export async function listUsers() {
   return (await db()).users.filter((user) => user.is_active !== false);
 }
 
+export async function authenticateUser(username, pin) {
+  if (useAppsScript()) return callAppsScript("authenticateUser", { username, pin });
+  const data = await db();
+  const normalizedUsername = normalizeUsername(username);
+  const user = data.users.find((item) =>
+    isActiveRecord(item)
+    && normalizeUsername(item.username || item.user_id) === normalizedUsername
+  );
+  if (!user || String(user.pin || "") !== String(pin || "")) {
+    throw new Error("Username or code does not match.");
+  }
+  return sessionUser(user);
+}
+
 export async function createUser(user, input) {
   if (useAppsScript()) {
     try {
@@ -236,18 +251,22 @@ export async function createUser(user, input) {
   if (user.role !== "ADMIN") throw new Error("Only an Admin can create users.");
   const data = await db();
   const fullName = String(input.full_name || "").trim();
-  const email = String(input.email || "").trim();
+  const username = normalizeUsername(input.username);
+  const pin = String(input.pin || "").trim();
   const role = String(input.role || "OPERATOR").toUpperCase();
   if (!fullName) throw new Error("Full name is required.");
-  if (!email) throw new Error("Email is required.");
+  if (!username) throw new Error("Username is required.");
+  if (!/^\d{4}$/.test(pin)) throw new Error("PIN must be exactly 4 digits.");
   if (!["ADMIN", "MANAGER", "OPERATOR"].includes(role)) throw new Error("Choose a valid role.");
-  if (data.users.some((item) => String(item.email || "").toLowerCase() === email.toLowerCase())) {
-    throw new Error("A user with that email already exists.");
+  if (data.users.some((item) => normalizeUsername(item.username || item.user_id) === username)) {
+    throw new Error("A user with that username already exists.");
   }
   const record = {
     user_id: uid("USR", data.users, "user_id"),
     full_name: fullName,
-    email,
+    username,
+    pin,
+    email: input.email || "",
     role,
     device_assigned: input.device_assigned || "",
     is_active: true,
@@ -260,10 +279,24 @@ export async function createUser(user, input) {
 
 function defaultUsers() {
   return [
-    { user_id: "ADMIN", full_name: "Admin User", email: "", role: "ADMIN", is_active: true },
-    { user_id: "MANAGER", full_name: "Manager User", email: "", role: "MANAGER", is_active: true },
-    { user_id: "OPERATOR", full_name: "Warehouse Operator", email: "", role: "OPERATOR", is_active: true }
+    { user_id: "ADMIN", username: "admin", pin: "1014", full_name: "Admin User", email: "", role: "ADMIN", is_active: true },
+    { user_id: "MANAGER", username: "manager", pin: "1014", full_name: "Manager User", email: "", role: "MANAGER", is_active: true },
+    { user_id: "OPERATOR", username: "operator", pin: "1014", full_name: "Warehouse Operator", email: "", role: "OPERATOR", is_active: true }
   ];
+}
+
+function normalizeUsername(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function sessionUser(user) {
+  return {
+    authenticated: true,
+    user_id: user.user_id,
+    username: user.username || user.user_id,
+    full_name: user.full_name || user.username || user.user_id,
+    role: String(user.role || "OPERATOR").toUpperCase()
+  };
 }
 
 export async function createProduct(user, input) {
@@ -317,9 +350,11 @@ export async function createOpeningInventory(user, input) {
   const qty = numberValue(input.qty);
   const weight = numberValue(input.purchase_unit_weight);
   const locationIds = normalizeLocationIds(input);
+  const occupiedLocationIds = occupiedInventoryLocationIds(data);
   const locations = locationIds.map((locationId) => data.locations.find((item) => item.location_id === locationId));
   if (!name || qty <= 0 || weight <= 0 || !locations.length || locations.some((location) => !location)) throw new Error("Complete product, quantity, weight, and inventory space.");
   if (locations.some((location) => String(location.current_status || "AVAILABLE").toUpperCase() !== "AVAILABLE")) throw new Error("Choose only available inventory spaces.");
+  if (locations.some((location) => occupiedLocationIds.has(location.location_id))) throw new Error("Choose only empty inventory spaces.");
   let product = data.products.find((item) => item.product_name.toLowerCase() === name.toLowerCase());
   if (!product) {
     product = { product_id: uid("PROD", data.products, "product_id"), product_name: name, product_category: input.product_category || "General", base_unit: "LB", perishability_days: numberValue(input.perishability_days), barcode_or_qr_value: "", is_active: true };
@@ -347,6 +382,21 @@ function normalizeLocationIds(input) {
     ? input.location_ids
     : [input.location_id];
   return Array.from(new Set(raw.map((value) => String(value || "").trim()).filter(Boolean)));
+}
+
+function occupiedInventoryLocationIds(data) {
+  const qtyByLocation = new Map();
+  data.inventoryMovements.forEach((movement) => {
+    const qtyChange = numberValue(movement.qty_change);
+    const locationId = qtyChange < 0
+      ? movement.from_location_id || movement.to_location_id || ""
+      : movement.to_location_id || movement.from_location_id || "";
+    if (!locationId) return;
+    qtyByLocation.set(locationId, numberValue(qtyByLocation.get(locationId)) + qtyChange);
+  });
+  return new Set(Array.from(qtyByLocation.entries())
+    .filter(([, qty]) => qty > 0)
+    .map(([locationId]) => locationId));
 }
 
 export async function updateProductStatus(user, productId, isActive) {

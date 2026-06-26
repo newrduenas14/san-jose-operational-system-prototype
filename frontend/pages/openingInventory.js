@@ -1,10 +1,19 @@
-import { createOpeningInventory, listLocations, listLots, listProducts } from "../js/api-smooth1.js?v=open5";
+import { createOpeningInventory, inventorySnapshot, listLocations, listLots, listProducts } from "../js/api-smooth1.js?v=open6";
 import { escapeHtml, notice } from "../js/utils.js";
 
 export async function render(ctx) {
   ctx.setTitle("Opening Inventory", "Add products to available spaces");
-  const [locations, products, lots] = await Promise.all([listLocations(), listProducts(), listLots()]);
-  const spaces = locations.filter((location) => String(location.current_status || "AVAILABLE").toUpperCase() === "AVAILABLE");
+  const [locations, products, lots, inventoryRows] = await Promise.all([listLocations(), listProducts(), listLots(), inventorySnapshot()]);
+  const occupiedLocationIds = new Set(
+    inventoryRows
+      .filter((row) => Number(row.qty ?? row.current_qty ?? row.available_qty ?? 0) > 0)
+      .map((row) => row.location_id)
+      .filter(Boolean)
+  );
+  const spaces = locations.filter((location) =>
+    String(location.current_status || "AVAILABLE").toUpperCase() === "AVAILABLE"
+    && !occupiedLocationIds.has(location.location_id)
+  );
 
   ctx.view.innerHTML = `
     <section class="panel">

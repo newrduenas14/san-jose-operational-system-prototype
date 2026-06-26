@@ -45,7 +45,9 @@ button {
 .login-choice:hover { background: rgba(255,255,255,.5); transform: translateY(-2px); }
 .pin-card { backdrop-filter: blur(16px); background: rgba(30, 5, 4, .82); border: 1px solid rgba(255,255,255,.34); border-radius: 22px; box-shadow: 0 24px 80px rgba(0,0,0,.48); min-width: min(420px, calc(100vw - 48px)); padding: 30px; text-align: center; }
 .pin-card h2 { font-size: 28px; letter-spacing: -.025em; margin: 7px 0 18px; }.pin-card .eyebrow { color: #ffd99b; }
-.pin-card input { background: rgba(255,255,255,.9); font-size: 28px; letter-spacing: .32em; text-align: center; }.pin-submit { font-family: inherit; font-size: 16px; margin-top: 10px; min-width: 100%; padding: 13px; }
+.pin-card input { background: rgba(255,255,255,.9); font-size: 20px; text-align: center; }
+.pin-card #pinInput { font-size: 28px; letter-spacing: .32em; }
+.pin-submit { font-family: inherit; font-size: 16px; margin-top: 10px; min-width: 100%; padding: 13px; }
 .pin-back { background: transparent; color: white; font-weight: 700; opacity: .9; padding: 0; }.pin-error { color: #ffe0a3; font-weight: 700; min-height: 19px; margin: 8px 0; }
 .login-screen.unlocking .login-content { left: 50%; top: 50%; transform: translate(-50%, -50%); }.login-screen.unlocking .login-heading { display: none; }.login-screen.unlocking .login-footer { opacity: .25; }.login-screen.unlocking .pin-card { display: grid; gap: 10px; }
 .login-footer { align-items: flex-end; bottom: clamp(24px, 6vh, 90px); display: flex; gap: 35px; left: clamp(32px, 10vw, 156px); max-width: 760px; position: absolute; z-index: 1; }.login-footer p { font-size: clamp(16px, 1.8vw, 25px); font-weight: 650; line-height: 1.25; margin: 0; max-width: 590px; text-shadow: 0 2px 12px rgba(0,0,0,.72); }.login-footer img { background: white; border: 6px solid white; border-radius: 50%; height: clamp(100px, 10vw, 150px); object-fit: contain; width: clamp(100px, 10vw, 150px); }
