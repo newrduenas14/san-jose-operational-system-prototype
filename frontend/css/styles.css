@@ -454,6 +454,7 @@ button {
 .btn.secondary { background: #e7eee9; color: var(--ink); }
 .btn.warn { background: var(--warn); }
 .btn.danger { background: var(--danger); }
+.btn.small { min-height: 34px; padding: 7px 10px; }
 .btn:disabled,
 button:disabled {
   cursor: not-allowed;

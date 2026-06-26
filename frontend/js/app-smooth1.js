@@ -1,5 +1,5 @@
-import { warmOperationalCache } from "./api-smooth1.js?v=inventoryvalue1";
-import { getSession, signIn, signOut } from "./auth.js?v=users2";
+import { warmOperationalCache } from "./api-smooth1.js?v=pin1";
+import { getSession, signIn, signOut } from "./auth.js?v=pin1";
 import { renderNavigation, renderRoute, configureRouter } from "./router.js?v=orders1";
 import { allowedPages } from "./permissions.js?v=orders1";
 import { enableTableFilters } from "./utils.js?v=filters1";
@@ -15,7 +15,7 @@ import * as inventory from "../pages/inventory.js?v=refine1";
 import * as scanner from "../pages/scannerTest.js?v=parties1";
 import * as amazon from "../pages/amazon.js?v=refine1";
 import * as reports from "../pages/reports.js?v=refine1";
-import * as admin from "../pages/admin.js?v=users2";
+import * as admin from "../pages/admin.js?v=pin1";
 
 const view = document.getElementById("view");
 const title = document.getElementById("pageTitle");
@@ -126,7 +126,7 @@ function showApp() {
 async function completeLogin() {
   try {
     document.getElementById("pinError").textContent = "";
-    user = await signIn(document.getElementById("usernameInput").value, document.getElementById("pinInput").value);
+    user = await signIn(document.getElementById("pinInput").value);
     showApp();
   } catch (error) {
     document.getElementById("pinError").textContent = error.message;
@@ -143,12 +143,12 @@ document.getElementById("signOutButton").addEventListener("click", () => {
   user = null;
   document.getElementById("app").hidden = true;
   document.getElementById("loginScreen").hidden = false;
-  document.getElementById("usernameInput").focus();
+  document.getElementById("pinInput").focus();
 });
 
 configureRouter(routes, renderAppRoute);
 if (user) showApp();
 else {
   document.body.classList.add("login-mode");
-  document.getElementById("usernameInput").focus();
+  document.getElementById("pinInput").focus();
 }

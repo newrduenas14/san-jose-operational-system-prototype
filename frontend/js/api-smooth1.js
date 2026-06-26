@@ -1,4 +1,4 @@
-import * as base from "./api.js?v=inventoryvalue1";
+import * as base from "./api.js?v=pin1";
 
 const READ_CACHE_TTL_MS = 45000;
 const readCache = new Map();
@@ -26,7 +26,7 @@ export function clearApiCache() {
 }
 
 export const getDashboard = () => cachedRead("getDashboard", [], base.getDashboard);
-export const authenticateUser = (username, pin) => base.authenticateUser(username, pin);
+export const authenticateUser = (pin) => base.authenticateUser(pin);
 export const listProducts = () => cachedRead("listProducts", [], base.listProducts);
 export const listLots = () => cachedRead("listLots", [], base.listLots);
 export const listUsers = () => cachedRead("listUsers", [], base.listUsers);
@@ -47,6 +47,10 @@ export async function createOpeningInventory(user, input) { return mutate(() => 
 
 export async function createUser(user, input) {
   return mutate(() => base.createUser(user, input));
+}
+
+export async function deactivateUser(user, userId) {
+  return mutate(() => base.deactivateUser(user, userId));
 }
 
 export async function updateProductStatus(user, productId, isActive) {

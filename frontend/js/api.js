@@ -5,6 +5,8 @@ import { GOOGLE_SCRIPT_WEB_APP_URL } from "./config.js?v=opening1";
 const DB_KEY = "sjops.database.v1";
 const APPS_CACHE_PREFIX = "sjops.apps.cache.";
 const APPS_CACHE_TTL_MS = 45000;
+const APPS_REQUEST_TIMEOUT_MS = 15000;
+const APPS_AUTH_TIMEOUT_MS = 6000;
 const READ_ACTIONS = new Set([
   "getDashboard",
   "authenticateUser",
@@ -28,7 +30,7 @@ function useAppsScript() {
   return Boolean(GOOGLE_SCRIPT_WEB_APP_URL && GOOGLE_SCRIPT_WEB_APP_URL.includes("/exec"));
 }
 
-async function callAppsScript(action, payload = {}) {
+async function callAppsScript(action, payload = {}, timeoutMs = APPS_REQUEST_TIMEOUT_MS) {
   const cacheKey = appsCacheKey(action, payload);
   if (READ_ACTIONS.has(action)) {
     const cached = readAppsCache(cacheKey);
@@ -39,12 +41,17 @@ async function callAppsScript(action, payload = {}) {
   const request = new Promise((resolve, reject) => {
     const callback = `sjopsCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const script = document.createElement("script");
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Apps Script request timed out. Check deployment access and version."));
+    }, timeoutMs);
     const url = new URL(GOOGLE_SCRIPT_WEB_APP_URL);
     url.searchParams.set("action", action);
     url.searchParams.set("payload", JSON.stringify(payload));
     url.searchParams.set("callback", callback);
 
     const cleanup = () => {
+      window.clearTimeout(timer);
       delete window[callback];
       script.remove();
       pendingAppsRequests.delete(cacheKey);
@@ -223,16 +230,15 @@ export async function listUsers() {
   return (await db()).users.filter((user) => user.is_active !== false);
 }
 
-export async function authenticateUser(username, pin) {
-  if (useAppsScript()) return callAppsScript("authenticateUser", { username, pin });
+export async function authenticateUser(pin) {
+  if (useAppsScript()) return callAppsScript("authenticateUser", { pin }, APPS_AUTH_TIMEOUT_MS);
   const data = await db();
-  const normalizedUsername = normalizeUsername(username);
   const user = data.users.find((item) =>
     isActiveRecord(item)
-    && normalizeUsername(item.username || item.user_id) === normalizedUsername
+    && String(item.pin || "").trim() === String(pin || "").trim()
   );
-  if (!user || String(user.pin || "") !== String(pin || "")) {
-    throw new Error("Username or code does not match.");
+  if (!user) {
+    throw new Error("Code does not match an active user.");
   }
   return sessionUser(user);
 }
@@ -251,20 +257,17 @@ export async function createUser(user, input) {
   if (user.role !== "ADMIN") throw new Error("Only an Admin can create users.");
   const data = await db();
   const fullName = String(input.full_name || "").trim();
-  const username = normalizeUsername(input.username);
   const pin = String(input.pin || "").trim();
   const role = String(input.role || "OPERATOR").toUpperCase();
   if (!fullName) throw new Error("Full name is required.");
-  if (!username) throw new Error("Username is required.");
   if (!/^\d{4}$/.test(pin)) throw new Error("PIN must be exactly 4 digits.");
   if (!["ADMIN", "MANAGER", "OPERATOR"].includes(role)) throw new Error("Choose a valid role.");
-  if (data.users.some((item) => normalizeUsername(item.username || item.user_id) === username)) {
-    throw new Error("A user with that username already exists.");
+  if (data.users.some((item) => isActiveRecord(item) && String(item.pin || "").trim() === pin)) {
+    throw new Error("An active user already has that 4-digit code.");
   }
   const record = {
     user_id: uid("USR", data.users, "user_id"),
     full_name: fullName,
-    username,
     pin,
     email: input.email || "",
     role,
@@ -277,24 +280,41 @@ export async function createUser(user, input) {
   return record;
 }
 
-function defaultUsers() {
-  return [
-    { user_id: "ADMIN", username: "admin", pin: "1014", full_name: "Admin User", email: "", role: "ADMIN", is_active: true },
-    { user_id: "MANAGER", username: "manager", pin: "1014", full_name: "Manager User", email: "", role: "MANAGER", is_active: true },
-    { user_id: "OPERATOR", username: "operator", pin: "1014", full_name: "Warehouse Operator", email: "", role: "OPERATOR", is_active: true }
-  ];
+export async function deactivateUser(user, userId) {
+  if (useAppsScript()) {
+    try {
+      return await callAppsScript("deactivateUser", { user, userId });
+    } catch (error) {
+      if (String(error.message || "").includes("Unknown action")) {
+        throw new Error("User removal is ready in the code, but the Google Apps Script must be redeployed first.");
+      }
+      throw error;
+    }
+  }
+  if (user.role !== "ADMIN") throw new Error("Only an Admin can remove users.");
+  if (String(user.user_id || "") === String(userId || "")) throw new Error("You cannot remove the user you are signed in as.");
+  const data = await db();
+  const record = data.users.find((item) => String(item.user_id || "") === String(userId || ""));
+  if (!record) throw new Error("User was not found.");
+  record.is_active = false;
+  record.updated_at = new Date().toISOString();
+  save();
+  return record;
 }
 
-function normalizeUsername(value) {
-  return String(value || "").trim().toLowerCase();
+function defaultUsers() {
+  return [
+    { user_id: "ADMIN", pin: "1014", full_name: "Admin User", email: "", role: "ADMIN", is_active: true },
+    { user_id: "MANAGER", pin: "2020", full_name: "Manager User", email: "", role: "MANAGER", is_active: true },
+    { user_id: "OPERATOR", pin: "3030", full_name: "Warehouse Operator", email: "", role: "OPERATOR", is_active: true }
+  ];
 }
 
 function sessionUser(user) {
   return {
     authenticated: true,
     user_id: user.user_id,
-    username: user.username || user.user_id,
-    full_name: user.full_name || user.username || user.user_id,
+    full_name: user.full_name || user.user_id,
     role: String(user.role || "OPERATOR").toUpperCase()
   };
 }

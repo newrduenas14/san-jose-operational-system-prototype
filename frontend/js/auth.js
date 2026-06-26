@@ -1,4 +1,4 @@
-import { authenticateUser } from "./api-smooth1.js?v=users2";
+import { authenticateUser } from "./api-smooth1.js?v=pin1";
 
 const SESSION_KEY = "sjops.session";
 const DEFAULT_PIN = "1014";
@@ -12,12 +12,12 @@ export function getSession() {
   }
 }
 
-export async function signIn(username, pin) {
+export async function signIn(pin) {
   let session;
   try {
-    session = await authenticateUser(username, pin);
+    session = await authenticateUser(pin);
   } catch (error) {
-    session = legacySignIn(username, pin, error);
+    session = legacySignIn(pin, error);
   }
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   return session;
@@ -27,13 +27,9 @@ export function signOut() {
   localStorage.removeItem(SESSION_KEY);
 }
 
-function legacySignIn(username, pin, originalError) {
-  const normalized = String(username || "").trim().toLowerCase();
-  if (pin === DEFAULT_PIN && normalized === "admin") {
-    return { authenticated: true, user_id: "ADMIN", username: "admin", full_name: "Admin", role: "ADMIN" };
-  }
-  if (pin === DEFAULT_PIN && normalized === "operator") {
-    return { authenticated: true, user_id: "OPERATOR", username: "operator", full_name: "Operator", role: "OPERATOR" };
+function legacySignIn(pin, originalError) {
+  if (String(pin || "").trim() === DEFAULT_PIN) {
+    return { authenticated: true, user_id: "ADMIN", full_name: "Admin", role: "ADMIN" };
   }
   throw originalError;
 }

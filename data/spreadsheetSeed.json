@@ -222,7 +222,6 @@
   "users": [
     {
       "user_id": "ADMIN",
-      "username": "admin",
       "pin": "1014",
       "full_name": "Admin User",
       "role": "ADMIN",
@@ -231,8 +230,7 @@
     },
     {
       "user_id": "MANAGER",
-      "username": "manager",
-      "pin": "1014",
+      "pin": "2020",
       "full_name": "Manager User",
       "role": "MANAGER",
       "email": "manager@example.com",
@@ -240,8 +238,7 @@
     },
     {
       "user_id": "OPERATOR",
-      "username": "operator",
-      "pin": "1014",
+      "pin": "3030",
       "full_name": "Warehouse Operator",
       "role": "OPERATOR",
       "email": "operator@example.com",
