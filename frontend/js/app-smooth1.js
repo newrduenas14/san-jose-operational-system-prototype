@@ -136,6 +136,11 @@ document.getElementById("menuToggle").addEventListener("click", () => {
   document.body.classList.toggle("menu-open");
 });
 
+document.getElementById("mobileHomeButton")?.addEventListener("click", () => {
+  document.body.classList.remove("menu-open");
+  navigate("mobileHome");
+});
+
 function usesWarehouseHome() {
   return window.innerWidth <= 900
     || (window.innerWidth <= 1366 && window.matchMedia("(pointer: coarse)").matches);
