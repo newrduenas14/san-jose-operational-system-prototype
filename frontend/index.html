@@ -8,7 +8,9 @@
     <link rel="stylesheet" href="./css/styles.css?v=qa1">
     <link rel="stylesheet" href="./css/reports-mobile.css?v=opsreports3">
     <link rel="stylesheet" href="./css/smooth.css?v=smooth1">
-    <script type="module" src="./js/app-smooth1.js?v=qa1"></script>
+    <link rel="stylesheet" href="./css/professional.css?v=mobile-professional1">
+    <link rel="stylesheet" href="./css/professional-nav-fix.css?v=phone-layout2">
+    <script type="module" src="./js/app-smooth1.js?v=phone-layout2"></script>
   </head>
   <body>
     <section id="loginScreen" class="login-screen" aria-label="Operations Center sign in">
@@ -42,11 +44,15 @@
           </div>
         </div>
         <nav id="nav" class="nav"></nav>
+        <button id="mobileMenuSignOut" class="mobile-menu-sign-out" type="button">Sign out</button>
       </aside>
 
       <main class="shell">
         <header class="topbar">
           <div class="mobile-nav-actions">
+            <button id="mobileHomeButton" class="icon-button mobile-home-button" type="button" aria-label="Warehouse home" title="Warehouse home">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8"></path><path d="M5 10v10h14V10"></path><path d="M9 20v-6h6v6"></path></svg>
+            </button>
             <button id="menuToggle" class="icon-button" type="button" aria-label="Open full navigation" title="Open full navigation">☰</button>
           </div>
           <div>
