@@ -85,6 +85,7 @@ async function renderAppRoute(page) {
     await routes[safePage].render(context());
     if (token !== renderToken) return;
     enableTableFilters(view);
+    sortProductSelects(view);
     view.classList.remove("view-loading");
   } catch (error) {
     if (token !== renderToken) return;
@@ -118,12 +119,21 @@ function loadingScreen(label) {
   `;
 }
 
+function sortProductSelects(root = document) {
+  root.querySelectorAll("select[data-product-search], select[data-product-choice]").forEach((select) => {
+    const selectedValue = select.value;
+    const options = Array.from(select.options);
+    const placeholder = options.find((option) => option.value === "") || null;
+    const productOptions = options
+      .filter((option) => option !== placeholder)
+      .sort((a, b) => a.textContent.trim().localeCompare(b.textContent.trim(), undefined, { numeric: true, sensitivity: "base" }));
+    select.replaceChildren(...[placeholder, ...productOptions].filter(Boolean));
+    select.value = selectedValue;
+  });
+}
+
 document.getElementById("menuToggle").addEventListener("click", () => {
   document.body.classList.toggle("menu-open");
-});
-document.getElementById("mobileHomeButton").addEventListener("click", () => {
-  document.body.classList.remove("menu-open");
-  navigate("mobileHome");
 });
 
 function usesWarehouseHome() {
