@@ -142,6 +142,8 @@ document.getElementById("mobileHomeButton")?.addEventListener("click", () => {
   renderRoute();
 });
 
+document.getElementById("mobileMenuSignOut")?.addEventListener("click", () => performSignOut());
+
 function usesWarehouseHome() {
   return window.innerWidth <= 900
     || (window.innerWidth <= 1366 && window.matchMedia("(pointer: coarse)").matches);
