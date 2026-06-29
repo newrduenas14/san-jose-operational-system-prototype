@@ -1,6 +1,18 @@
 /* V2 contrast fixes loaded after professional.css.
    Keeps the QuickBooks-style cleaner UI while forcing the left menu to stay readable. */
 
+.mobile-home-button {
+  display: none !important;
+}
+
+@media (max-width: 900px), (max-width: 1366px) and (pointer: coarse) {
+  .mobile-home-button {
+    align-items: center;
+    display: inline-flex !important;
+    justify-content: center;
+  }
+}
+
 @media (min-width: 701px) {
   body #app aside.sidebar,
   body #app .sidebar {
