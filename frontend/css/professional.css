@@ -1,0 +1,554 @@
+/* Professional UI experiment for San Jose Operations.
+   Loaded last so the branch can be previewed, adjusted, or removed safely.
+   Priority: phone-first warehouse use, then tablet and desktop polish. */
+
+:root {
+  --sj-surface: #ffffff;
+  --sj-surface-muted: #f6f8f6;
+  --sj-page: #f4f6f4;
+  --sj-border: #d8e0dc;
+  --sj-border-strong: #c7d1cb;
+  --sj-text: #17211b;
+  --sj-muted: #63706a;
+  --sj-green: #2f6b3f;
+  --sj-green-soft: #edf5ef;
+  --sj-radius: 7px;
+  --sj-radius-sm: 5px;
+  --sj-touch: 44px;
+}
+
+* {
+  -webkit-tap-highlight-color: rgba(47, 107, 63, 0.14);
+}
+
+body {
+  background: var(--sj-page);
+  color: var(--sj-text);
+}
+
+.sidebar {
+  background: var(--sj-surface);
+  border-right: 1px solid var(--sj-border);
+  box-shadow: none !important;
+}
+
+.brand {
+  border-bottom: 1px solid var(--sj-border);
+  padding: 16px 18px;
+}
+
+.brand-logo {
+  border-radius: var(--sj-radius-sm);
+}
+
+.nav {
+  gap: 2px;
+  padding: 10px 8px;
+}
+
+.nav a,
+.nav button,
+.nav-link {
+  border-radius: var(--sj-radius-sm) !important;
+  box-shadow: none !important;
+  min-height: 38px;
+  padding: 9px 12px !important;
+}
+
+.nav a.active,
+.nav button.active,
+.nav-link.active,
+.nav [aria-current="page"] {
+  background: var(--sj-green-soft) !important;
+  border-left: 3px solid var(--sj-green);
+  color: var(--sj-green) !important;
+  font-weight: 700;
+}
+
+.shell {
+  background: var(--sj-page);
+}
+
+.topbar {
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--sj-border);
+  box-shadow: none !important;
+  min-height: 72px;
+  padding: 14px 22px;
+}
+
+.topbar h1,
+#pageTitle {
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+#pageSubtitle,
+.muted {
+  color: var(--sj-muted);
+}
+
+.user-panel,
+.notice,
+.panel,
+.card,
+.metric-card,
+.kpi-card,
+.po-line-item,
+.sales-line-item,
+.loading-panel,
+.pin-card {
+  border: 1px solid var(--sj-border) !important;
+  border-radius: var(--sj-radius) !important;
+  box-shadow: none !important;
+}
+
+.panel,
+.card,
+.metric-card,
+.kpi-card,
+.loading-panel {
+  background: var(--sj-surface);
+}
+
+.panel {
+  padding: 18px !important;
+}
+
+.panel-header {
+  border-bottom: 1px solid var(--sj-border);
+  margin: -2px 0 14px;
+  padding-bottom: 10px;
+}
+
+.panel-header h2,
+.panel h2,
+.po-lines-heading h3 {
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+
+.grid {
+  gap: 16px !important;
+}
+
+.view {
+  padding: 18px 22px 28px;
+}
+
+button,
+.btn,
+.sign-out,
+.login-choice,
+.icon-button,
+input,
+select,
+textarea {
+  border-radius: var(--sj-radius-sm) !important;
+}
+
+button,
+.btn,
+.login-choice {
+  box-shadow: none !important;
+  min-height: 38px;
+  padding: 9px 14px !important;
+}
+
+.btn.secondary,
+button.secondary {
+  background: var(--sj-surface) !important;
+  border: 1px solid var(--sj-border-strong) !important;
+  color: var(--sj-text) !important;
+}
+
+.icon-button {
+  border: 1px solid var(--sj-border-strong) !important;
+  box-shadow: none !important;
+  height: 38px;
+  width: 38px;
+}
+
+input,
+select,
+textarea {
+  background: var(--sj-surface) !important;
+  border: 1px solid var(--sj-border-strong) !important;
+  box-shadow: none !important;
+  min-height: 38px;
+  padding: 8px 10px !important;
+}
+
+textarea {
+  min-height: 76px;
+}
+
+.field {
+  gap: 5px !important;
+}
+
+.field label {
+  color: #46524c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.po-header-grid,
+.sales-order-header-grid,
+.po-line-grid,
+.sales-line-grid {
+  gap: 12px !important;
+}
+
+.po-line-item,
+.sales-line-item {
+  background: #fbfcfb !important;
+  padding: 14px !important;
+}
+
+.po-line-title {
+  margin-bottom: 10px !important;
+}
+
+.po-line-summary,
+.sales-line-facts,
+.sales-allocation-preview {
+  background: var(--sj-surface) !important;
+  border: 1px solid var(--sj-border) !important;
+  border-radius: var(--sj-radius-sm) !important;
+  box-shadow: none !important;
+}
+
+.po-footer,
+.sales-order-footer {
+  border-top: 1px solid var(--sj-border);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.po-totals {
+  background: var(--sj-surface) !important;
+  border: 1px solid var(--sj-border) !important;
+  border-radius: var(--sj-radius-sm) !important;
+  box-shadow: none !important;
+  padding: 10px 12px !important;
+}
+
+table,
+.data-table {
+  border: 1px solid var(--sj-border) !important;
+  border-collapse: separate;
+  border-radius: var(--sj-radius-sm) !important;
+  border-spacing: 0;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+
+th,
+td {
+  border-bottom: 1px solid #e8ede9 !important;
+  padding: 9px 11px !important;
+}
+
+th {
+  background: var(--sj-surface-muted) !important;
+  color: #46524c !important;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+td {
+  background: var(--sj-surface);
+  font-size: 13px;
+}
+
+tr:last-child td {
+  border-bottom: 0 !important;
+}
+
+.status,
+.badge,
+.pill {
+  border-radius: 999px !important;
+  box-shadow: none !important;
+  padding: 4px 8px !important;
+}
+
+.metric-card,
+.kpi-card {
+  padding: 14px !important;
+}
+
+.metric-card strong,
+.kpi-card strong {
+  font-size: 22px;
+}
+
+.actions,
+.po-actions {
+  gap: 6px !important;
+}
+
+.login-screen .pin-card,
+.login-choice {
+  border-radius: var(--sj-radius) !important;
+}
+
+/* Tablet: keep it compact, but preserve two-column work areas when possible. */
+@media (min-width: 701px) and (max-width: 1180px) {
+  .topbar {
+    min-height: 68px;
+    padding: 12px 18px;
+  }
+
+  .view {
+    padding: 16px 18px 24px;
+  }
+
+  .panel {
+    padding: 16px !important;
+  }
+
+  .po-header-grid,
+  .sales-order-header-grid,
+  .po-line-grid,
+  .sales-line-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .user-panel {
+    max-width: 260px;
+  }
+}
+
+/* Phone: primary warehouse layout. Bigger taps, less clutter, safe horizontal overflow. */
+@media (max-width: 700px) {
+  :root {
+    --sj-radius: 6px;
+    --sj-radius-sm: 4px;
+  }
+
+  body {
+    background: #ffffff;
+  }
+
+  .shell {
+    background: #ffffff;
+  }
+
+  .topbar {
+    align-items: center;
+    gap: 10px;
+    min-height: 58px;
+    padding: 9px 10px;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+
+  .mobile-nav-actions {
+    gap: 6px;
+  }
+
+  .icon-button,
+  button,
+  .btn,
+  .sign-out,
+  .login-choice,
+  input,
+  select,
+  textarea {
+    min-height: var(--sj-touch) !important;
+  }
+
+  .icon-button {
+    height: var(--sj-touch);
+    width: var(--sj-touch);
+  }
+
+  #pageTitle {
+    font-size: 18px;
+  }
+
+  #pageSubtitle {
+    display: none;
+  }
+
+  .user-panel {
+    border: 0 !important;
+    padding: 0 !important;
+  }
+
+  .user-panel div {
+    display: none;
+  }
+
+  .user-avatar {
+    height: 34px;
+    width: 34px;
+  }
+
+  .sign-out {
+    padding: 7px 9px !important;
+  }
+
+  .view {
+    padding: 10px;
+  }
+
+  .grid,
+  .dashboard-grid,
+  .metrics-grid,
+  .reports-grid {
+    gap: 10px !important;
+  }
+
+  .panel,
+  .card,
+  .metric-card,
+  .kpi-card {
+    padding: 12px !important;
+  }
+
+  .panel-header {
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+  }
+
+  .panel-header h2,
+  .panel h2,
+  .po-lines-heading h3 {
+    font-size: 15px;
+  }
+
+  .po-header-grid,
+  .sales-order-header-grid,
+  .po-line-grid,
+  .sales-line-grid {
+    display: grid !important;
+    gap: 9px !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .field.full,
+  .full {
+    grid-column: auto !important;
+  }
+
+  .po-line-item,
+  .sales-line-item {
+    padding: 11px !important;
+  }
+
+  .po-lines-heading {
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+
+  .po-lines-heading .btn,
+  #addPoLine,
+  #addSalesLine {
+    width: 100%;
+  }
+
+  .po-footer,
+  .sales-order-footer {
+    align-items: stretch !important;
+    display: grid !important;
+    gap: 10px !important;
+  }
+
+  .po-footer .btn,
+  .sales-order-footer .btn {
+    width: 100%;
+  }
+
+  .po-totals {
+    width: 100% !important;
+  }
+
+  .actions,
+  .po-actions {
+    display: grid !important;
+    gap: 6px !important;
+    grid-template-columns: 1fr;
+  }
+
+  .actions .btn,
+  .po-actions .btn,
+  .actions button,
+  .po-actions button {
+    width: 100%;
+  }
+
+  table,
+  .data-table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  th,
+  td {
+    padding: 8px 9px !important;
+    white-space: nowrap;
+  }
+
+  td {
+    font-size: 12.5px;
+  }
+
+  .metric-card strong,
+  .kpi-card strong {
+    font-size: 20px;
+  }
+
+  .notice {
+    margin: 8px 10px !important;
+  }
+}
+
+/* Very small phones: squeeze only what matters, keep taps usable. */
+@media (max-width: 420px) {
+  .topbar {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  #pageTitle {
+    font-size: 16px;
+  }
+
+  .sign-out {
+    font-size: 12px;
+  }
+
+  .view {
+    padding: 8px;
+  }
+
+  .panel,
+  .card,
+  .metric-card,
+  .kpi-card,
+  .po-line-item,
+  .sales-line-item {
+    padding: 10px !important;
+  }
+}
+
+/* Desktop: calmer, more professional, less oversized card feeling. */
+@media (min-width: 1181px) {
+  .view {
+    max-width: 1500px;
+  }
+
+  .panel:hover,
+  .card:hover,
+  .metric-card:hover {
+    border-color: var(--sj-border-strong) !important;
+  }
+}
