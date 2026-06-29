@@ -62,7 +62,7 @@ export function table(headers, rows) {
                   ? (h.sortValue ? h.sortValue(row) : row[h.key])
                   : null;
                 const sortAttribute = h.sortable ? ` data-sort-value="${escapeHtml(sortValue)}"` : "";
-                return `<td${sortAttribute}>${h.render ? h.render(row) : escapeHtml(row[h.key])}</td>`;
+                return `<td data-label="${escapeHtml(h.label)}"${sortAttribute}>${h.render ? h.render(row) : escapeHtml(row[h.key])}</td>`;
               }).join("")}
             </tr>
           `).join("")}

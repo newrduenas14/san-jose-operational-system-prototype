@@ -1,4 +1,4 @@
-import { createProduct, inventorySnapshot, listProducts, updateProductStatus } from "../js/api-smooth1.js?v=parties1";
+import { createProduct, inventorySnapshot, listProducts, updateProductStatus } from "../js/api-smooth1.js?v=qa1";
 import { can } from "../js/permissions.js";
 import { enableTableSorting, escapeHtml, formToObject, formatQuantity, notice, table } from "../js/utils.js";
 

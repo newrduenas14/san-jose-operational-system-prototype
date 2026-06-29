@@ -1,4 +1,4 @@
-import { createPurchaseOrder, getPurchaseOrderDetail, listProducts, listPurchaseOrders, listSuppliers, purchaseOrderAction } from "../js/api-smooth1.js?v=parties1";
+import { createPurchaseOrder, getPurchaseOrderDetail, listProducts, listPurchaseOrders, listSuppliers, purchaseOrderAction } from "../js/api-smooth1.js?v=qa1";
 import { can } from "../js/permissions.js";
 import { escapeHtml, formatMoney, formatQuantity, notice, status, table } from "../js/utils.js";
 
@@ -18,7 +18,8 @@ export async function render(ctx) {
   ctx.setTitle("Purchase Orders", "Create multi-product orders with receiving QR codes");
   const [purchaseOrders, products, suppliers] = await Promise.all([listPurchaseOrders(), listProducts(), listSuppliers()]);
   const activeProducts = products.filter(isActive);
-  const activeSuppliers = suppliers.filter(isActive).filter(isVendor);
+  const activeSuppliers = suppliers.filter(isActive).filter(isVendor)
+    .sort((a, b) => String(a.supplier_name || "").localeCompare(String(b.supplier_name || ""), undefined, { sensitivity: "base" }));
 
   ctx.view.innerHTML = `
     <div class="grid">

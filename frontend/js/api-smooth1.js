@@ -27,7 +27,8 @@ export function clearApiCache() {
 
 export const getDashboard = () => cachedRead("getDashboard", [], base.getDashboard);
 export const authenticateUser = (pin) => base.authenticateUser(pin);
-export const listProducts = () => cachedRead("listProducts", [], base.listProducts);
+export const listProducts = async () => [...await cachedRead("listProducts", [], base.listProducts)]
+  .sort((a, b) => String(a.product_name || "").localeCompare(String(b.product_name || ""), undefined, { sensitivity: "base" }));
 export const listLots = () => cachedRead("listLots", [], base.listLots);
 export const listUsers = () => cachedRead("listUsers", [], base.listUsers);
 export const listSuppliers = () => cachedRead("listSuppliers", [], base.listSuppliers);

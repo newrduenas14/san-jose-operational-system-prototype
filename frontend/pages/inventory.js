@@ -1,10 +1,10 @@
-import { inventorySnapshot, lookupScan, recordInventoryMovement } from "../js/api-smooth1.js?v=parties1";
+import { inventorySnapshot, lookupScan, recordInventoryMovement } from "../js/api-smooth1.js?v=qa1";
 import { handleKeyboardScan, startCameraScanner, stopCameraScanner } from "../js/scanner.js?v=smooth1";
-import { escapeHtml, formToObject, formatQuantity, notice, table } from "../js/utils.js";
+import { escapeHtml, formToObject, formatQuantity, notice, table } from "../js/utils.js?v=qa1";
 
 export async function render(ctx) {
   ctx.setTitle("Inventory Lookup", "Inventory is calculated from movement records");
-  const rows = await inventorySnapshot();
+  const rows = [...await inventorySnapshot()].sort(compareInventoryRows);
   ctx.view.innerHTML = `
     <div class="grid">
       <section class="panel">
@@ -36,7 +36,7 @@ export async function render(ctx) {
           <div class="field full"><button class="btn" type="submit">Record Movement</button></div>
         </form>
       </section>
-      <section class="panel">
+      <section class="panel inventory-snapshot-panel">
         <div class="panel-header"><h2>Current Inventory Snapshot</h2></div>
         ${table([
           { label: "Product", render: (row) => escapeHtml(row.product?.product_name || row.product_id) },
@@ -82,6 +82,14 @@ export async function render(ctx) {
       notice(error.message);
     }
   });
+}
+
+function compareInventoryRows(a, b) {
+  const productA = a.product?.product_name || a.product_id || "";
+  const productB = b.product?.product_name || b.product_id || "";
+  return String(productA).localeCompare(String(productB), undefined, { sensitivity: "base" })
+    || String(a.internal_lot_id || "").localeCompare(String(b.internal_lot_id || ""), undefined, { numeric: true })
+    || String(a.location_id || "").localeCompare(String(b.location_id || ""), undefined, { numeric: true });
 }
 
 function purchaseUnits(row) {

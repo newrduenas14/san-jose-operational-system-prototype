@@ -1,4 +1,4 @@
-import { createOpeningInventory, inventorySnapshot, listLocations, listLots, listProducts } from "../js/api-smooth1.js?v=open6";
+import { createOpeningInventory, inventorySnapshot, listLocations, listLots, listProducts } from "../js/api-smooth1.js?v=qa1";
 import { escapeHtml, notice } from "../js/utils.js";
 
 export async function render(ctx) {

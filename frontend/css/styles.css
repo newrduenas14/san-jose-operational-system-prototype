@@ -53,7 +53,7 @@ button {
 .pin-card #pinInput { font-size: 30px; font-weight: 750; letter-spacing: .26em; padding-left: .26em; }
 .pin-submit { background: var(--primary); border-radius: 12px; box-shadow: none; font-family: inherit; font-size: 16px; margin-top: 2px; min-width: 100%; padding: 14px; text-shadow: none; }
 .pin-submit:hover { background: var(--primary-dark); transform: translateY(-1px); }
-.pin-back { background: transparent; color: white; font-weight: 700; opacity: .9; padding: 0; }.pin-error { color: #ffe0a3; font-weight: 700; min-height: 19px; margin: 8px 0; }
+.pin-back { background: transparent; color: white; font-weight: 700; opacity: .9; padding: 0; }.pin-error { color: #9f2d24; font-weight: 700; min-height: 19px; margin: 8px 0; }
 .login-screen.unlocking .login-content { left: 50%; top: 50%; transform: translate(-50%, -50%); }.login-screen.unlocking .login-heading { display: none; }.login-screen.unlocking .login-footer { opacity: .25; }.login-screen.unlocking .pin-card { display: grid; gap: 10px; }
 .login-footer { align-self: end; margin-top: clamp(28px, 8vh, 80px); max-width: 660px; position: relative; z-index: 1; }.login-footer p { color: #f6eadb; font-size: clamp(14px, 1.35vw, 18px); font-weight: 650; line-height: 1.4; margin: 0; max-width: 640px; text-shadow: 0 2px 12px rgba(0,0,0,.72); }
 
@@ -1249,6 +1249,12 @@ tr:last-child td {
 }
 
 @media (max-width: 1366px) and (pointer: coarse), (max-width: 900px) {
+  #app { grid-template-columns: 1fr; }
+  .sidebar { display: none; }
+  .mobile-nav-actions { display: flex; gap: 8px; }
+  .mobile-home-button { align-items: center; display: inline-grid; justify-content: center; }
+  #menuToggle { display: none; }
+
   body.mobile-home-mode { background: #0c3827; }
   body.mobile-home-mode #app { background: #0c3827; display: block; }
   body.mobile-home-mode .sidebar,
@@ -1302,6 +1308,34 @@ tr:last-child td {
   .warehouse-action-list { display: grid; gap: 7px; }
   .warehouse-action-list button { align-items: center; background: white; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); display: flex; font-weight: 750; justify-content: space-between; min-height: 52px; padding: 10px 14px; text-align: left; width: 100%; }
   .warehouse-action-list b { color: var(--primary); font-size: 21px; }
+
+  .inventory-snapshot-panel .table-wrap { overflow-x: visible; }
+  .inventory-snapshot-panel table,
+  .inventory-snapshot-panel tbody { display: block; min-width: 0; width: 100%; }
+  .inventory-snapshot-panel thead { display: none; }
+  .inventory-snapshot-panel tbody { display: grid; gap: 10px; }
+  .inventory-snapshot-panel tbody tr {
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 8px;
+  }
+  .inventory-snapshot-panel tbody td {
+    border: 0;
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    padding: 8px;
+  }
+  .inventory-snapshot-panel tbody td::before {
+    color: var(--muted);
+    content: attr(data-label);
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
 }
 
 @media (min-width: 700px) and (max-width: 1366px) and (pointer: coarse) {
@@ -1407,6 +1441,8 @@ tr:last-child td {
     grid-template-columns: 1fr 1fr;
     min-width: 0;
   }
+
+  .inventory-snapshot-panel tbody tr { grid-template-columns: 1fr; }
 
   .receiving-product-main {
     grid-column: 1 / -1;

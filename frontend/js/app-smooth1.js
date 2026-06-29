@@ -2,16 +2,16 @@ import { warmOperationalCache } from "./api-smooth1.js?v=pin1";
 import { getSession, signIn, signOut } from "./auth.js?v=pin1";
 import { renderNavigation, renderRoute, configureRouter, navigate } from "./router.js?v=mobilehome1";
 import { allowedPages } from "./permissions.js?v=mobilehome1";
-import { enableTableFilters } from "./utils.js?v=filters1";
+import { enableTableFilters } from "./utils.js?v=qa1";
 import * as dashboard from "../pages/dashboard.js?v=refine1";
-import * as products from "../pages/products.js?v=refine1";
+import * as products from "../pages/products.js?v=qa1";
 import * as suppliers from "../pages/suppliers.js?v=parties1";
 import * as orders from "../pages/orders.js?v=orders1";
-import * as purchaseOrders from "../pages/purchaseOrders.js?v=refine1";
+import * as purchaseOrders from "../pages/purchaseOrders.js?v=qa1";
 import * as salesOrders from "../pages/salesOrders.js?v=salesproduct1";
 import * as receiving from "../pages/receiving.js?v=refine1";
-import * as openingInventory from "../pages/openingInventory.js?v=open6";
-import * as inventory from "../pages/inventory.js?v=refine1";
+import * as openingInventory from "../pages/openingInventory.js?v=qa1";
+import * as inventory from "../pages/inventory.js?v=qa1";
 import * as scanner from "../pages/scannerTest.js?v=parties1";
 import * as amazon from "../pages/amazon.js?v=refine1";
 import * as reports from "../pages/reports.js?v=refine1";
@@ -23,6 +23,8 @@ const title = document.getElementById("pageTitle");
 const subtitle = document.getElementById("pageSubtitle");
 let user = getSession();
 let renderToken = 0;
+let inactivityTimer;
+const INACTIVITY_LIMIT_MS = 5 * 60 * 1000;
 
 const routes = {
   mobileHome,
@@ -136,8 +138,32 @@ function showApp() {
   renderSessionIdentity();
   renderNavigation(user);
   renderRoute();
+  resetInactivityTimer();
   window.setTimeout(warmOperationalCache, 1000);
 }
+
+function resetInactivityTimer() {
+  window.clearTimeout(inactivityTimer);
+  if (!user) return;
+  inactivityTimer = window.setTimeout(() => performSignOut("Signed out after 5 minutes of inactivity."), INACTIVITY_LIMIT_MS);
+}
+
+function performSignOut(message = "") {
+  window.clearTimeout(inactivityTimer);
+  signOut();
+  user = null;
+  document.body.classList.add("login-mode");
+  document.body.classList.remove("menu-open", "mobile-home-mode");
+  document.getElementById("app").hidden = true;
+  document.getElementById("loginScreen").hidden = false;
+  document.getElementById("pinInput").value = "";
+  document.getElementById("pinError").textContent = message;
+  document.getElementById("pinInput").focus();
+}
+
+["pointerdown", "keydown", "touchstart"].forEach((eventName) => {
+  document.addEventListener(eventName, resetInactivityTimer, { passive: true });
+});
 
 async function completeLogin() {
   try {
@@ -155,13 +181,7 @@ document.getElementById("pinForm").addEventListener("submit", (event) => {
   event.preventDefault();
   completeLogin();
 });
-document.getElementById("signOutButton").addEventListener("click", () => {
-  signOut();
-  user = null;
-  document.getElementById("app").hidden = true;
-  document.getElementById("loginScreen").hidden = false;
-  document.getElementById("pinInput").focus();
-});
+document.getElementById("signOutButton").addEventListener("click", () => performSignOut());
 
 configureRouter(routes, renderAppRoute);
 if (user) {
