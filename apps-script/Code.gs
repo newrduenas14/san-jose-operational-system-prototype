@@ -1,4 +1,4 @@
-const SPREADSHEET_ID = "PASTE_YOUR_SPREADSHEET_ID_HERE";
+const SPREADSHEET_ID = "1XYaMXKGR5EG8VS38PPiHFNbtmwX5Ae6N33jLE72nxKE";
 
 const ROLES = {
   ADMIN: "ADMIN",
@@ -7,9 +7,37 @@ const ROLES = {
 };
 
 const PERMISSIONS = {
-  ADMIN: ["products:create", "suppliers:create", "purchaseOrders:create", "purchaseOrders:actions", "salesOrders:create", "salesOrders:actions", "receiving:create", "inventory:view", "inventory:adjust", "scanner:lookup"],
-  MANAGER: ["products:create", "suppliers:create", "purchaseOrders:create", "purchaseOrders:actions", "salesOrders:create", "salesOrders:actions", "receiving:create", "inventory:view", "inventory:adjust", "scanner:lookup"],
-  OPERATOR: ["salesOrders:actions", "receiving:create", "inventory:view", "inventory:adjust", "scanner:lookup"]
+  ADMIN: [
+    "products:create",
+    "suppliers:create",
+    "purchaseOrders:create",
+    "purchaseOrders:actions",
+    "salesOrders:create",
+    "salesOrders:actions",
+    "receiving:create",
+    "inventory:view",
+    "inventory:adjust",
+    "scanner:lookup"
+  ],
+  MANAGER: [
+    "products:create",
+    "suppliers:create",
+    "purchaseOrders:create",
+    "purchaseOrders:actions",
+    "salesOrders:create",
+    "salesOrders:actions",
+    "receiving:create",
+    "inventory:view",
+    "inventory:adjust",
+    "scanner:lookup"
+  ],
+  OPERATOR: [
+    "salesOrders:actions",
+    "receiving:create",
+    "inventory:view",
+    "inventory:adjust",
+    "scanner:lookup"
+  ]
 };
 
 const CORE_SCHEMA = {
@@ -31,7 +59,9 @@ const CORE_SCHEMA = {
 };
 
 function doGet(e) {
-  if (e && e.parameter && e.parameter.action) return handleApiRequest_(e.parameter.action, e.parameter.payload, e.parameter.callback);
+  if (e && e.parameter && e.parameter.action) {
+    return handleApiRequest_(e.parameter.action, e.parameter.payload, e.parameter.callback);
+  }
   return HtmlService.createHtmlOutput("San Jose Operations Apps Script is deployed.");
 }
 
@@ -44,12 +74,37 @@ function handleApiRequest_(action, payloadText, callback) {
   try {
     const payload = payloadText ? JSON.parse(payloadText) : {};
     const routes = {
-      getDashboard, authenticateUser, listProducts, listLots, createOpeningInventory, listUsers, createUser,
-      deactivateUser, createProduct, listSuppliers, createSupplier, listLocations, listPurchaseOrders,
-      getPurchaseOrderDetail, generatePurchaseOrderTemplate, createPurchaseOrder, purchaseOrderAction,
-      listSalesOrders, getSalesOrderDetail, createSalesOrder, salesOrderAction, receiveProduct,
-      recordInventoryMovement, recordAmazonOutbound, listAmazonOutboundActivity, inventorySnapshot,
-      getOperationalReports, lookupScan, matchAmazonPackageScan, validateOperationalSchema
+      getDashboard,
+      authenticateUser,
+      listProducts,
+      listLots,
+      createOpeningInventory,
+      listUsers,
+      createUser,
+      deactivateUser,
+      createProduct,
+      updateProductStatus,
+      listSuppliers,
+      createSupplier,
+      listLocations,
+      listPurchaseOrders,
+      getPurchaseOrderDetail,
+      generatePurchaseOrderTemplate,
+      createPurchaseOrder,
+      purchaseOrderAction,
+      listSalesOrders,
+      getSalesOrderDetail,
+      createSalesOrder,
+      salesOrderAction,
+      receiveProduct,
+      recordInventoryMovement,
+      recordAmazonOutbound,
+      listAmazonOutboundActivity,
+      inventorySnapshot,
+      getOperationalReports,
+      lookupScan,
+      matchAmazonPackageScan,
+      validateOperationalSchema
     };
     if (!routes[action]) throw new Error("Unknown action: " + action);
     return json_({ ok: true, result: routes[action](payload) }, callback);
@@ -60,14 +115,23 @@ function handleApiRequest_(action, payloadText, callback) {
 
 function json_(value, callback) {
   const body = callback ? `${callback}(${JSON.stringify(value)});` : JSON.stringify(value);
-  return ContentService.createTextOutput(body).setMimeType(callback ? ContentService.MimeType.JAVASCRIPT : ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(body)
+    .setMimeType(callback ? ContentService.MimeType.JAVASCRIPT : ContentService.MimeType.JSON);
 }
 
 function spreadsheet_() {
-  if (SPREADSHEET_ID === "PASTE_YOUR_SPREADSHEET_ID_HERE") throw new Error("Set SPREADSHEET_ID in Code.gs first.");
+  if (SPREADSHEET_ID === "PASTE_YOUR_SPREADSHEET_ID_HERE") {
+    throw new Error("Set SPREADSHEET_ID in Code.gs first.");
+  }
   return SpreadsheetApp.openById(SPREADSHEET_ID);
 }
-function sheet_(sheetName) { const sheet = spreadsheet_().getSheetByName(sheetName); if (!sheet) throw new Error("Missing sheet: " + sheetName); return sheet; }
+
+function sheet_(sheetName) {
+  const sheet = spreadsheet_().getSheetByName(sheetName);
+  if (!sheet) throw new Error("Missing sheet: " + sheetName);
+  return sheet;
+}
+
 function tableMeta_(sheetName) {
   const sheet = sheet_(sheetName);
   const values = sheet.getDataRange().getValues();
@@ -76,87 +140,1145 @@ function tableMeta_(sheetName) {
   const headers = values[headerIndex].map((cell) => String(cell || "").trim()).filter(Boolean);
   return { sheet, values, headerRow: headerIndex + 1, headers };
 }
+
 function readTable_(sheetName) {
   const meta = tableMeta_(sheetName);
-  return meta.values.slice(meta.headerRow).filter((row) => row.some((cell) => cell !== "" && cell !== null)).map((row) => {
-    const record = {}; meta.headers.forEach((header, index) => record[header] = row[index]); return record;
-  });
+  return meta.values.slice(meta.headerRow)
+    .filter((row) => row.some((cell) => cell !== "" && cell !== null))
+    .map((row) => {
+      const record = {};
+      meta.headers.forEach((header, index) => record[header] = row[index]);
+      return record;
+    });
 }
-function ensureTableColumns_(sheetName, requiredHeaders) {
+
+function appendRecord_(sheetName, record) {
+  ensureTableColumns_(sheetName, Object.keys(record || {}));
   const meta = tableMeta_(sheetName);
-  const missing = (requiredHeaders || []).filter((header) => header && meta.headers.indexOf(header) < 0);
-  if (missing.length) meta.sheet.getRange(meta.headerRow, meta.headers.length + 1, 1, missing.length).setValues([missing]);
+  meta.sheet.appendRow(meta.headers.map((header) => record[header] !== undefined ? record[header] : ""));
 }
-function appendRecord_(sheetName, record) { ensureTableColumns_(sheetName, Object.keys(record || {})); const meta = tableMeta_(sheetName); meta.sheet.appendRow(meta.headers.map((header) => record[header] !== undefined ? record[header] : "")); }
+
 function updateTableRecord_(sheetName, idColumn, idValue, fields) {
   ensureTableColumns_(sheetName, Object.keys(fields || {}));
-  const meta = tableMeta_(sheetName); const idIndex = meta.headers.indexOf(idColumn);
+  const meta = tableMeta_(sheetName);
+  const idIndex = meta.headers.indexOf(idColumn);
   if (idIndex < 0) throw new Error(`Missing ${idColumn} column in ${sheetName}.`);
   for (let row = meta.headerRow + 1; row <= meta.sheet.getLastRow(); row++) {
     if (String(meta.sheet.getRange(row, idIndex + 1).getValue()) !== String(idValue)) continue;
-    Object.keys(fields || {}).forEach((field) => { const columnIndex = meta.headers.indexOf(field); if (columnIndex >= 0) meta.sheet.getRange(row, columnIndex + 1).setValue(fields[field]); });
+    Object.keys(fields || {}).forEach((field) => {
+      const columnIndex = meta.headers.indexOf(field);
+      if (columnIndex >= 0) meta.sheet.getRange(row, columnIndex + 1).setValue(fields[field]);
+    });
     return;
   }
   throw new Error(`${idValue} was not found in ${sheetName}.`);
 }
-function nextId_(sheetName, idColumn, prefix) { const maxNumber = readTable_(sheetName).reduce((max, row) => { const match = String(row[idColumn] || "").match(/(\d+)$/); return match ? Math.max(max, Number(match[1])) : max; }, 0); return `${prefix}-${String(maxNumber + 1).padStart(6, "0")}`; }
-function normalizeRole_(role) { const normalized = String(role || "OPERATOR").trim().toUpperCase(); if (normalized === "OWNER") return "ADMIN"; return ["ADMIN", "MANAGER", "OPERATOR"].indexOf(normalized) >= 0 ? normalized : "OPERATOR"; }
-function requirePermission_(user, permission) { const role = normalizeRole_(user && user.role); if (!PERMISSIONS[role] || PERMISSIONS[role].indexOf(permission) < 0) throw new Error("Permission denied: " + permission); }
-function isActiveRecord_(row) { return row && row.is_active !== false && String(row.is_active || "TRUE").toUpperCase() !== "FALSE"; }
-function number_(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : (fallback || 0); }
-function today_() { return new Date(); }
-function byId_(rows, idColumn) { return (rows || []).reduce((map, row) => { map[row[idColumn]] = row; return map; }, {}); }
-function daysBetween_(start, end) { const a = new Date(start); const b = new Date(end || today_()); return Number.isNaN(a.getTime()) ? 0 : Math.max(0, Math.round((b.getTime() - a.getTime()) / 86400000)); }
-function writeAuditLog_(entry) { try { ensureTableColumns_("AUDIT_LOG", CORE_SCHEMA.AUDIT_LOG); appendRecord_("AUDIT_LOG", { audit_id: nextId_("AUDIT_LOG", "audit_id", "AUDIT"), timestamp: today_(), user_id: entry.user_id || "SYSTEM", role: normalizeRole_(entry.role || "ADMIN"), device_id: entry.device_id || "WEB_APP", action_type: entry.action_type || "SYSTEM_EVENT", table_name: entry.table_name || "", record_id: entry.record_id || "", field_name: entry.field_name || "", old_value: entry.old_value || "", new_value: entry.new_value || "", source_screen: entry.source_screen || "APPS_SCRIPT", notes: entry.notes || "" }); } catch (_error) {} }
 
-function sessionUser_(user) { return { authenticated: true, user_id: user.user_id, full_name: user.full_name || user.user_id, role: normalizeRole_(user.role) }; }
-function listUsers() { return readTable_("USERS").filter(isActiveRecord_).map((user) => ({ ...user, role: normalizeRole_(user.role) })).sort((a, b) => String(a.full_name || "").localeCompare(String(b.full_name || ""))); }
-function authenticateUser(payload) { const pin = String((payload || {}).pin || "").trim(); const user = readTable_("USERS").find((item) => isActiveRecord_(item) && String(item.pin || "").trim() === pin); if (!user && pin === "1014") return { authenticated: true, user_id: "ADMIN", full_name: "Admin", role: "ADMIN" }; if (!user) throw new Error("Code does not match an active user."); return sessionUser_(user); }
-function createUser(payload) { payload = payload || {}; const actor = payload.user || {}; if (normalizeRole_(actor.role) !== "ADMIN") throw new Error("Only an Admin can create users."); const input = payload.input || {}; const pin = String(input.pin || "").trim(); if (!String(input.full_name || "").trim()) throw new Error("Full name is required."); if (!/^\d{4}$/.test(pin)) throw new Error("PIN must be exactly 4 digits."); ensureTableColumns_("USERS", CORE_SCHEMA.USERS); if (readTable_("USERS").some((item) => isActiveRecord_(item) && String(item.pin || "").trim() === pin)) throw new Error("An active user already has that 4-digit code."); const record = { user_id: nextId_("USERS", "user_id", "USR"), full_name: input.full_name, role: normalizeRole_(input.role), email: input.email || "", device_assigned: input.device_assigned || "", is_active: true, created_at: today_(), updated_at: today_(), notes: input.notes || "", pin }; appendRecord_("USERS", record); writeAuditLog_({ user_id: actor.user_id, role: actor.role, action_type: "CREATE_USER", table_name: "USERS", record_id: record.user_id }); return record; }
-function deactivateUser(payload) { const actor = (payload || {}).user || {}; if (normalizeRole_(actor.role) !== "ADMIN") throw new Error("Only an Admin can remove users."); const userId = String((payload || {}).userId || (payload || {}).user_id || "").trim(); updateTableRecord_("USERS", "user_id", userId, { is_active: false, updated_at: today_() }); writeAuditLog_({ user_id: actor.user_id, role: actor.role, action_type: "DEACTIVATE_USER", table_name: "USERS", record_id: userId }); return { user_id: userId, is_active: false }; }
+function ensureTableColumns_(sheetName, requiredHeaders) {
+  const meta = tableMeta_(sheetName);
+  const missing = (requiredHeaders || []).filter((header) => header && meta.headers.indexOf(header) < 0);
+  if (!missing.length) return;
+  meta.sheet.getRange(meta.headerRow, meta.headers.length + 1, 1, missing.length).setValues([missing]);
+}
 
-function listProducts() { return readTable_("PRODUCTS").filter(isActiveRecord_).sort((a, b) => String(a.product_name || "").localeCompare(String(b.product_name || ""))); }
-function listLots() { return readTable_("LOTS"); }
-function createProduct(payload) { payload = payload || {}; const user = payload.user || {}; requirePermission_(user, "products:create"); const input = payload.input || {}; const name = String(input.product_name || "").trim(); if (!name) throw new Error("Product name is required."); ensureTableColumns_("PRODUCTS", CORE_SCHEMA.PRODUCTS); if (readTable_("PRODUCTS").some((row) => String(row.product_name || "").trim().toLowerCase() === name.toLowerCase())) throw new Error("A product with this name already exists."); const productId = input.product_id || nextId_("PRODUCTS", "product_id", "PROD"); const record = { product_id: productId, product_name: name, product_category: input.product_category || "General", default_unit: input.default_unit || "", case_weight_lbs: number_(input.case_weight_lbs, 0), amazon_sku: input.amazon_sku || "", wholesale_sku: input.wholesale_sku || "", barcode_or_qr_value: input.barcode_or_qr_value || productId, min_stock_qty: number_(input.min_stock_qty, 0), target_stock_qty: number_(input.target_stock_qty, 0), velocity_class: input.velocity_class || "", storage_zone_preference: input.storage_zone_preference || "", is_active: true, created_at: today_(), updated_at: today_(), notes: input.notes || "", base_unit: input.base_unit || "LB", units_per_purchase_unit: number_(input.units_per_purchase_unit || input.case_weight_lbs, 0), can_break_case: input.can_break_case || "", perishability_days: number_(input.perishability_days, 0) }; appendRecord_("PRODUCTS", record); writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "CREATE_PRODUCT", table_name: "PRODUCTS", record_id: record.product_id }); return record; }
+function nextId_(sheetName, idColumn, prefix) {
+  const rows = readTable_(sheetName);
+  const maxNumber = rows.reduce((max, row) => {
+    const match = String(row[idColumn] || "").match(/(\d+)$/);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return `${prefix}-${String(maxNumber + 1).padStart(6, "0")}`;
+}
 
-function normalizePartyType_(value) { return String(value || "VENDOR").trim().toUpperCase() === "CUSTOMER" ? "CUSTOMER" : "VENDOR"; }
-function listSuppliers() { return readTable_("SUPPLIERS").filter(isActiveRecord_).map((supplier) => ({ ...supplier, party_type: normalizePartyType_(supplier.party_type) })).sort((a, b) => String(a.supplier_name || "").localeCompare(String(b.supplier_name || ""))); }
-function createSupplier(payload) { payload = payload || {}; const user = payload.user || {}; requirePermission_(user, "suppliers:create"); const input = payload.input || {}; if (!String(input.supplier_name || "").trim()) throw new Error("Business name is required."); ensureTableColumns_("SUPPLIERS", CORE_SCHEMA.SUPPLIERS); const partyType = normalizePartyType_(input.party_type); const record = { supplier_id: input.supplier_id || nextId_("SUPPLIERS", "supplier_id", partyType === "CUSTOMER" ? "CUST" : "SUP"), supplier_name: input.supplier_name, contact_name: input.contact_name || "", email: input.email || "", phone: input.phone || "", address: input.address || "", payment_terms: input.payment_terms || "Net 30", default_currency: input.default_currency || input.currency || "USD", lead_time_expected_days: number_(input.lead_time_expected_days, 0), is_active: true, created_at: today_(), updated_at: today_(), notes: input.notes || "", party_type: partyType }; appendRecord_("SUPPLIERS", record); writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "CREATE_PARTY", table_name: "SUPPLIERS", record_id: record.supplier_id }); return record; }
-function listLocations() { return readTable_("LOCATIONS").filter(isActiveRecord_); }
+function normalizeRole_(role) {
+  const normalized = String(role || "OPERATOR").trim().toUpperCase();
+  if (normalized === "OWNER") return "ADMIN";
+  if (normalized === "ADMIN" || normalized === "MANAGER" || normalized === "OPERATOR") return normalized;
+  return "OPERATOR";
+}
 
-function listPurchaseOrders() { const suppliers = byId_(readTable_("SUPPLIERS"), "supplier_id"); return readTable_("PURCHASE_ORDERS").map((po) => ({ ...po, supplier: suppliers[po.supplier_id] || null })).sort((a, b) => String(b.order_date || "").localeCompare(String(a.order_date || ""))); }
-function getPurchaseOrderDetail(payload) { const poId = typeof payload === "string" ? payload : String((payload || {}).poId || (payload || {}).po_id || ""); const po = readTable_("PURCHASE_ORDERS").find((row) => String(row.po_id) === poId); if (!po) return null; const products = byId_(readTable_("PRODUCTS"), "product_id"); const suppliers = byId_(readTable_("SUPPLIERS"), "supplier_id"); const lines = readTable_("PURCHASE_ORDER_LINES").filter((line) => String(line.po_id) === poId).map((line) => ({ ...line, product: products[line.product_id] || null })); return { po: { ...po, supplier: suppliers[po.supplier_id] || null }, lines }; }
-function createPurchaseOrder(payload) { payload = payload || {}; const user = payload.user || {}; requirePermission_(user, "purchaseOrders:create"); const input = payload.input || {}; const supplierId = input.supplier_id || input.vendor_id; const lines = Array.isArray(input.lines) ? input.lines : []; if (!supplierId) throw new Error("Choose a supplier."); if (!lines.length) throw new Error("Add at least one product line."); ensureTableColumns_("PURCHASE_ORDERS", CORE_SCHEMA.PURCHASE_ORDERS); ensureTableColumns_("PURCHASE_ORDER_LINES", CORE_SCHEMA.PURCHASE_ORDER_LINES); const poId = input.po_id || nextId_("PURCHASE_ORDERS", "po_id", "PO"); const currency = input.currency || "USD"; let subtotal = 0; const products = byId_(readTable_("PRODUCTS"), "product_id"); lines.forEach((line) => subtotal += number_(line.qty_ordered || line.quantity, 0) * number_(line.unit_cost || line.cost, 0)); const tax = (input.tax_enabled === true || String(input.tax_enabled).toUpperCase() === "TRUE") ? subtotal * number_(input.tax_rate, 0) / 100 : 0; const shipping = number_(input.shipping_amount, 0); appendRecord_("PURCHASE_ORDERS", { po_id: poId, po_status: input.po_status || "DRAFT", supplier_id: supplierId, created_by: user.user_id || user.role, order_date: input.order_date || today_(), expected_delivery_date: input.expected_delivery_date || "", payment_terms: input.payment_terms || "", currency, subtotal_amount: subtotal, tax_amount: tax, shipping_amount: shipping, total_amount: subtotal + tax + shipping, notes: input.notes || "", tax_enabled: Boolean(input.tax_enabled), tax_rate: number_(input.tax_rate, 0), ship_via: input.ship_via || "", bill_status: input.bill_status || "NOT_CREATED" }); lines.forEach((line) => { const product = products[line.product_id] || {}; const qty = number_(line.qty_ordered || line.quantity, 0); const unitCost = number_(line.unit_cost || line.cost, 0); const unitsPer = number_(line.units_per_purchase_unit || product.units_per_purchase_unit || product.case_weight_lbs, 0); const poLineId = nextId_("PURCHASE_ORDER_LINES", "po_line_id", "POL"); appendRecord_("PURCHASE_ORDER_LINES", { po_line_id: poLineId, po_id: poId, supplier_id: supplierId, product_id: line.product_id, line_status: "OPEN", qty_ordered: qty, qty_received_total: 0, qty_remaining: qty, unit_type: line.unit_type || product.default_unit || "CASE", unit_cost: unitCost, currency, line_total: qty * unitCost, supplier_expected_lot_number: line.supplier_expected_lot_number || "", notes: line.notes || "", base_unit: line.base_unit || product.base_unit || "LB", units_per_purchase_unit: unitsPer, expected_base_qty: qty * unitsPer, case_weight_lbs: unitsPer, qr_value: line.qr_value || poLineId }); }); writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "CREATE_PO", table_name: "PURCHASE_ORDERS", record_id: poId }); return getPurchaseOrderDetail({ po_id: poId }); }
-function purchaseOrderAction(payload) { const user = (payload || {}).user || {}; requirePermission_(user, "purchaseOrders:actions"); const poId = (payload || {}).poId || (payload || {}).po_id; const action = String((payload || {}).action || (payload || {}).status || "").toUpperCase(); const statusMap = { SEND: "SENT", SENT: "SENT", ORDER: "ORDERED", ORDERED: "ORDERED", CANCEL: "CANCELLED", CANCELLED: "CANCELLED", CLOSE: "CLOSED", CLOSED: "CLOSED" }; const nextStatus = statusMap[action] || action; updateTableRecord_("PURCHASE_ORDERS", "po_id", poId, { po_status: nextStatus, updated_at: today_() }); writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "PO_" + nextStatus, table_name: "PURCHASE_ORDERS", record_id: poId }); return getPurchaseOrderDetail({ po_id: poId }); }
-function generatePurchaseOrderTemplate(payload) { const detail = getPurchaseOrderDetail(payload); if (!detail) throw new Error("Purchase order was not found."); return { ...detail, generated_at: today_(), message: "Template data ready for frontend rendering." }; }
+function requirePermission_(user, permission) {
+  const role = normalizeRole_(user && user.role);
+  if (!PERMISSIONS[role] || PERMISSIONS[role].indexOf(permission) < 0) {
+    throw new Error("Permission denied: " + permission);
+  }
+}
 
-function receiveProduct(payload) { payload = payload || {}; const user = payload.user || {}; requirePermission_(user, "receiving:create"); const input = payload.input || payload; const poLineId = String(input.po_line_id || "").trim(); const line = readTable_("PURCHASE_ORDER_LINES").find((row) => String(row.po_line_id) === poLineId); if (!line) throw new Error("PO line was not found."); const qtyReceived = number_(input.qty_received, 0); const qtyDamaged = number_(input.qty_damaged, 0); const qtyAccepted = Math.max(qtyReceived - qtyDamaged, 0); if (qtyAccepted <= 0) throw new Error("Accepted quantity must be greater than zero."); const unitsPer = number_(line.units_per_purchase_unit || line.case_weight_lbs, 1); const acceptedBase = qtyAccepted * unitsPer; const lotId = nextId_("LOTS", "internal_lot_id", "LOT"); const receivingId = nextId_("RECEIVING", "receiving_id", "RCV"); const locationId = input.confirmed_location_id || input.location_id || ""; const lot = { internal_lot_id: lotId, product_id: line.product_id, supplier_id: line.supplier_id, supplier_lot_number: input.supplier_lot_number || "", po_id: line.po_id, po_line_id: poLineId, received_date: today_(), original_qty: acceptedBase, current_qty_script: acceptedBase, unit_type: line.base_unit || "LB", unit_cost: line.unit_cost, currency: line.currency || "USD", current_location_id: locationId, status: input.quality_status === "HOLD" ? "HOLD" : "ACTIVE", expiration_date: input.expiration_date || "", qr_value: lotId, created_at: today_(), updated_at: today_(), notes: input.notes || "", purchase_qty_received: qtyAccepted, purchase_unit_type: line.unit_type, pallet_count: number_(input.pallet_count, 0) }; const receiving = { receiving_id: receivingId, po_id: line.po_id, po_line_id: poLineId, supplier_id: line.supplier_id, product_id: line.product_id, scan_code: input.scan_code || poLineId, internal_lot_id: lotId, supplier_lot_number: input.supplier_lot_number || "", received_date: today_(), received_by: user.user_id || user.role, qty_received: qtyReceived, qty_damaged: qtyDamaged, qty_accepted: qtyAccepted, unit_type: line.unit_type, quality_score: input.quality_score || "", over_under_status: "", confirmed_location_id: locationId, approval_status: input.quality_status === "HOLD" ? "PENDING" : "APPROVED", notes: input.notes || "", base_unit: line.base_unit || "LB", units_per_purchase_unit: unitsPer, qty_accepted_base: acceptedBase, pallet_count: number_(input.pallet_count, 0), quality_status: input.quality_status || "PASS" }; const movement = { movement_id: nextId_("INVENTORY_MOVEMENTS", "movement_id", "MOV"), movement_type: "RECEIVE", timestamp: today_(), user_id: user.user_id || user.role, product_id: line.product_id, internal_lot_id: lotId, qty_change: acceptedBase, unit_type: line.base_unit || "LB", from_location_id: "RECEIVING", to_location_id: locationId, related_po_id: line.po_id, related_receiving_id: receivingId, scan_code: lotId, device_id: input.device_id || "WEB_APP", approval_status: receiving.approval_status, notes: input.notes || "" }; appendRecord_("RECEIVING", receiving); appendRecord_("LOTS", lot); appendRecord_("INVENTORY_MOVEMENTS", movement); const newReceived = number_(line.qty_received_total, 0) + qtyAccepted; const remaining = Math.max(number_(line.qty_ordered, 0) - newReceived, 0); updateTableRecord_("PURCHASE_ORDER_LINES", "po_line_id", poLineId, { qty_received_total: newReceived, qty_remaining: remaining, line_status: remaining <= 0 ? "RECEIVED" : "PARTIAL" }); refreshPurchaseOrderStatus_(line.po_id); writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "RECEIVE_PRODUCT", table_name: "RECEIVING", record_id: receivingId }); return { receiving, lot, movement, purchaseOrder: getPurchaseOrderDetail({ po_id: line.po_id }) }; }
-function refreshPurchaseOrderStatus_(poId) { const lines = readTable_("PURCHASE_ORDER_LINES").filter((line) => String(line.po_id) === String(poId)); if (!lines.length) return; const allReceived = lines.every((line) => number_(line.qty_remaining, number_(line.qty_ordered, 0)) <= 0); const anyReceived = lines.some((line) => number_(line.qty_received_total, 0) > 0); updateTableRecord_("PURCHASE_ORDERS", "po_id", poId, { po_status: allReceived ? "RECEIVED" : anyReceived ? "PARTIALLY_RECEIVED" : "ORDERED", actual_first_received_date: anyReceived ? today_() : "", actual_completed_date: allReceived ? today_() : "" }); }
-function createOpeningInventory(payload) { payload = payload || {}; const user = payload.user || {}; requirePermission_(user, "receiving:create"); const input = payload.input || {}; let product = input.product_id ? byId_(readTable_("PRODUCTS"), "product_id")[input.product_id] : null; if (!product) product = createProduct({ user, input }); const qty = number_(input.qty || input.quantity, 0); const unitWeight = number_(input.purchase_unit_weight || input.case_weight_lbs, 1); if (qty <= 0) throw new Error("Quantity must be greater than zero."); const lotId = nextId_("LOTS", "internal_lot_id", "LOT"); const baseQty = qty * unitWeight; const locationId = input.location_id || (Array.isArray(input.location_ids) ? input.location_ids[0] : ""); const lot = { internal_lot_id: lotId, product_id: product.product_id, supplier_lot_number: input.supplier_lot_number || "OPENING", received_date: today_(), original_qty: baseQty, current_qty_script: baseQty, unit_type: "LB", unit_cost: number_(input.unit_cost, 0), currency: input.currency || "USD", current_location_id: locationId, status: "ACTIVE", qr_value: lotId, created_at: today_(), updated_at: today_(), notes: input.notes || "Opening inventory count.", purchase_qty_received: qty, purchase_unit_type: input.purchase_unit || "UNIT", pallet_count: number_(input.pallet_count, 0) }; const movement = { movement_id: nextId_("INVENTORY_MOVEMENTS", "movement_id", "MOV"), movement_type: "OPENING_INVENTORY", timestamp: today_(), user_id: user.user_id || user.role, product_id: product.product_id, internal_lot_id: lotId, qty_change: baseQty, unit_type: "LB", from_location_id: "OPENING_COUNT", to_location_id: locationId, scan_code: lotId, device_id: "WEB_APP", approval_status: "APPROVED", notes: input.notes || "" }; appendRecord_("LOTS", lot); appendRecord_("INVENTORY_MOVEMENTS", movement); writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "OPENING_INVENTORY", table_name: "LOTS", record_id: lotId }); return { product, lot, movement }; }
+function isActiveRecord_(row) {
+  return row && row.is_active !== false && String(row.is_active || "TRUE").toUpperCase() !== "FALSE";
+}
 
-function listSalesOrders() { return readTable_("SALES_ORDERS").sort((a, b) => String(b.order_date || "").localeCompare(String(a.order_date || ""))); }
-function getSalesOrderDetail(payload) { const salesOrderId = typeof payload === "string" ? payload : String((payload || {}).salesOrderId || (payload || {}).sales_order_id || ""); const order = readTable_("SALES_ORDERS").find((row) => String(row.sales_order_id) === salesOrderId); if (!order) return null; const products = byId_(readTable_("PRODUCTS"), "product_id"); const lots = byId_(readTable_("LOTS"), "internal_lot_id"); const lines = readTable_("SALES_ORDER_LINES").filter((line) => String(line.sales_order_id) === salesOrderId).map((line) => ({ ...line, product: products[line.product_id] || null, lot: lots[line.preferred_internal_lot_id] || null })); const pickTasks = readTable_("PICK_TASKS").filter((task) => String(task.sales_order_id) === salesOrderId); return { order, lines, pickTasks }; }
-function createSalesOrder(payload) { payload = payload || {}; const user = payload.user || {}; requirePermission_(user, "salesOrders:create"); const input = payload.input || {}; const lines = Array.isArray(input.lines) ? input.lines : []; if (!lines.length) throw new Error("Add at least one sales line."); ensureTableColumns_("SALES_ORDERS", CORE_SCHEMA.SALES_ORDERS); ensureTableColumns_("SALES_ORDER_LINES", CORE_SCHEMA.SALES_ORDER_LINES); const salesOrderId = input.sales_order_id || nextId_("SALES_ORDERS", "sales_order_id", "SO"); const currency = input.currency || "USD"; const products = byId_(readTable_("PRODUCTS"), "product_id"); const lots = byId_(readTable_("LOTS"), "internal_lot_id"); let subtotal = 0; let grossProfit = 0; lines.forEach((line) => { const qty = number_(line.qty_ordered || line.quantity, 0); const price = number_(line.unit_price || line.price, 0); const cost = number_(line.unit_cost || (lots[line.preferred_internal_lot_id] || {}).unit_cost, 0); subtotal += qty * price; grossProfit += (price - cost) * qty; }); const tax = input.tax_enabled ? subtotal * number_(input.tax_rate, 0) / 100 : number_(input.tax_amount, 0); const shipping = number_(input.shipping_amount, 0); appendRecord_("SALES_ORDERS", { sales_order_id: salesOrderId, channel: input.channel || "WHOLESALE", order_source: input.order_source || "WEB_APP", customer_name: input.customer_name || "", customer_email: input.customer_email || "", customer_phone: input.customer_phone || "", amazon_order_id: input.amazon_order_id || "", order_date: input.order_date || today_(), ship_by_date: input.ship_by_date || "", status: input.status || "DRAFT", currency, subtotal_amount: subtotal, tax_amount: tax, shipping_amount: shipping, total_amount: subtotal + tax + shipping, invoice_status: input.invoice_status || "NOT_CREATED", quickbooks_invoice_id: input.quickbooks_invoice_id || "", created_by: user.user_id || user.role, created_at: today_(), updated_at: today_(), notes: input.notes || "", customer_id: input.customer_id || "", ship_method: input.ship_method || "", payment_terms: input.payment_terms || "", tax_enabled: Boolean(input.tax_enabled), tax_rate: number_(input.tax_rate, 0), estimated_gross_profit: grossProfit, estimated_gross_margin_percent: subtotal ? grossProfit / subtotal * 100 : 0, bl_folio: input.bl_folio || nextBlFolio_(), shipping_address: input.shipping_address || "" }); lines.forEach((line) => { const product = products[line.product_id] || {}; const lot = lots[line.preferred_internal_lot_id] || {}; const qty = number_(line.qty_ordered || line.quantity, 0); const price = number_(line.unit_price || line.price, 0); const cost = number_(line.unit_cost || lot.unit_cost, 0); appendRecord_("SALES_ORDER_LINES", { sales_order_line_id: nextId_("SALES_ORDER_LINES", "sales_order_line_id", "SOL"), sales_order_id: salesOrderId, channel: input.channel || "WHOLESALE", amazon_order_item_id: line.amazon_order_item_id || "", product_id: line.product_id, amazon_sku: line.amazon_sku || product.amazon_sku || "", wholesale_sku: line.wholesale_sku || product.wholesale_sku || "", qty_ordered: qty, qty_picked: 0, qty_remaining: qty, unit_type: line.unit_type || product.base_unit || "LB", unit_price: price, currency, line_total: qty * price, preferred_internal_lot_id: line.preferred_internal_lot_id || "", preferred_location_id: line.preferred_location_id || lot.current_location_id || "", line_status: "OPEN", notes: line.notes || "", unit_weight_lbs: number_(line.unit_weight_lbs || product.case_weight_lbs, 0), inventory_qty_required: number_(line.inventory_qty_required || qty, qty), inventory_unit_type: line.inventory_unit_type || product.base_unit || "LB", unit_cost: cost, estimated_gross_profit: (price - cost) * qty, expiration_date: line.expiration_date || lot.expiration_date || "", fefo_status: line.fefo_status || "" }); }); writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "CREATE_SALES_ORDER", table_name: "SALES_ORDERS", record_id: salesOrderId }); return getSalesOrderDetail({ sales_order_id: salesOrderId }); }
-function salesOrderAction(payload) { payload = payload || {}; const user = payload.user || {}; requirePermission_(user, "salesOrders:actions"); const id = payload.salesOrderId || payload.sales_order_id; const action = String(payload.action || payload.status || "").toUpperCase(); if (action === "CONFIRM" || action === "CONFIRMED") return confirmSalesOrder_(id, user); if (action === "PICK" || action === "PICKED") return pickSalesOrder_(id, user); if (action === "SHIP" || action === "SHIPPED") return shipSalesOrder_(id, user); if (action === "CANCEL" || action === "CANCELLED") return cancelSalesOrder_(id, user); updateTableRecord_("SALES_ORDERS", "sales_order_id", id, { status: action, updated_at: today_() }); return getSalesOrderDetail({ sales_order_id: id }); }
-function confirmSalesOrder_(id, user) { const detail = getSalesOrderDetail({ sales_order_id: id }); if (!detail) throw new Error("Sales order was not found."); detail.lines.forEach((line) => appendRecord_("PICK_TASKS", { pick_task_id: nextId_("PICK_TASKS", "pick_task_id", "PICK"), sales_order_id: id, sales_order_line_id: line.sales_order_line_id, channel: detail.order.channel, task_date: today_(), priority: "NORMAL", product_id: line.product_id, recommended_internal_lot_id: line.preferred_internal_lot_id, recommended_location_id: line.preferred_location_id, qty_to_pick: line.qty_ordered, qty_picked: 0, unit_type: line.unit_type, assigned_to: "", pick_status: "OPEN", scan_code: line.preferred_internal_lot_id, device_id: "WEB_APP", exception_code: "", notes: "", qty_to_pick_base: line.inventory_qty_required || line.qty_ordered, reservation_status: "RESERVED" })); updateTableRecord_("SALES_ORDERS", "sales_order_id", id, { status: "CONFIRMED", confirmed_at: today_(), updated_at: today_() }); writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "CONFIRM_SALES_ORDER", table_name: "SALES_ORDERS", record_id: id }); return getSalesOrderDetail({ sales_order_id: id }); }
-function pickSalesOrder_(id, user) { readTable_("PICK_TASKS").filter((task) => String(task.sales_order_id) === String(id)).forEach((task) => updateTableRecord_("PICK_TASKS", "pick_task_id", task.pick_task_id, { qty_picked: task.qty_to_pick, pick_status: "PICKED", picked_at: today_(), reservation_status: "PICKED" })); updateTableRecord_("SALES_ORDERS", "sales_order_id", id, { status: "PICKED", picked_at: today_(), updated_at: today_() }); writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "PICK_SALES_ORDER", table_name: "SALES_ORDERS", record_id: id }); return getSalesOrderDetail({ sales_order_id: id }); }
-function shipSalesOrder_(id, user) { const detail = getSalesOrderDetail({ sales_order_id: id }); if (!detail) throw new Error("Sales order was not found."); detail.pickTasks.forEach((task) => { const qty = -Math.abs(number_(task.qty_to_pick_base || task.qty_to_pick, 0)); if (qty) appendRecord_("INVENTORY_MOVEMENTS", { movement_id: nextId_("INVENTORY_MOVEMENTS", "movement_id", "MOV"), movement_type: "SALE", timestamp: today_(), user_id: user.user_id || user.role, product_id: task.product_id, internal_lot_id: task.recommended_internal_lot_id, qty_change: qty, unit_type: task.unit_type, from_location_id: task.recommended_location_id, to_location_id: "CUSTOMER", related_sales_order_id: id, related_pick_task_id: task.pick_task_id, scan_code: task.scan_code, device_id: task.device_id || "WEB_APP", approval_status: "APPROVED", notes: "Shipped sales order." }); updateTableRecord_("PICK_TASKS", "pick_task_id", task.pick_task_id, { pick_status: "SHIPPED", reservation_status: "RELEASED" }); }); updateTableRecord_("SALES_ORDERS", "sales_order_id", id, { status: "SHIPPED", shipped_at: today_(), updated_at: today_() }); writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "SHIP_SALES_ORDER", table_name: "SALES_ORDERS", record_id: id }); return getSalesOrderDetail({ sales_order_id: id }); }
-function cancelSalesOrder_(id, user) { readTable_("PICK_TASKS").filter((task) => String(task.sales_order_id) === String(id)).forEach((task) => updateTableRecord_("PICK_TASKS", "pick_task_id", task.pick_task_id, { pick_status: "CANCELLED", reservation_status: "RELEASED" })); updateTableRecord_("SALES_ORDERS", "sales_order_id", id, { status: "CANCELLED", updated_at: today_() }); writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "CANCEL_SALES_ORDER", table_name: "SALES_ORDERS", record_id: id }); return getSalesOrderDetail({ sales_order_id: id }); }
+function number_(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : (fallback || 0);
+}
 
-function recordInventoryMovement(payload) { payload = payload || {}; const user = payload.user || {}; requirePermission_(user, "inventory:adjust"); const input = payload.input || payload; const movement = { movement_id: nextId_("INVENTORY_MOVEMENTS", "movement_id", "MOV"), movement_type: input.movement_type || "ADJUSTMENT", timestamp: today_(), user_id: user.user_id || user.role, product_id: input.product_id, internal_lot_id: input.internal_lot_id, package_id: input.package_id || "", qty_change: number_(input.qty_change, 0), unit_type: input.unit_type || "LB", from_location_id: input.from_location_id || "", to_location_id: input.to_location_id || "", related_po_id: input.related_po_id || "", related_receiving_id: input.related_receiving_id || "", related_sales_order_id: input.related_sales_order_id || "", related_pick_task_id: input.related_pick_task_id || "", related_amazon_order_id: input.related_amazon_order_id || "", scan_code: input.scan_code || input.internal_lot_id || "", device_id: input.device_id || "WEB_APP", approval_status: input.approval_status || "APPROVED", notes: input.notes || "" }; if (!movement.product_id || !movement.internal_lot_id || movement.qty_change === 0) throw new Error("Product, lot, and quantity change are required."); appendRecord_("INVENTORY_MOVEMENTS", movement); writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "INVENTORY_MOVEMENT", table_name: "INVENTORY_MOVEMENTS", record_id: movement.movement_id }); return movement; }
-function recordAmazonOutbound(payload) { payload = payload || {}; const user = payload.user || {}; const input = payload.input || payload; const pkgId = input.package_id || nextId_("AMAZON_PACKAGES", "package_id", "PKG"); const movement = recordInventoryMovement({ user, input: { movement_type: "AMAZON_OUT", product_id: input.product_id, internal_lot_id: input.source_internal_lot_id || input.internal_lot_id, package_id: pkgId, qty_change: -Math.abs(number_(input.qty_product_used || input.qty_change, 0)), unit_type: input.unit_type || "LB", from_location_id: input.current_location_id || input.from_location_id || "", to_location_id: "AMAZON_PACKAGE", related_amazon_order_id: input.matched_amazon_order_id || "", scan_code: pkgId, notes: input.notes || "" } }); const pkg = { package_id: pkgId, package_qr_value: input.package_qr_value || pkgId, amazon_sku: input.amazon_sku || "", product_id: input.product_id, source_internal_lot_id: input.source_internal_lot_id || input.internal_lot_id, qty_product_used: Math.abs(number_(input.qty_product_used || input.qty_change, 0)), unit_type: input.unit_type || "LB", packed_by: user.user_id || user.role, packed_at: today_(), package_status: input.package_status || "PACKED", current_location_id: input.current_location_id || "", matched_amazon_order_id: input.matched_amazon_order_id || "", matched_amazon_order_item_id: input.matched_amazon_order_item_id || "", shipped_at: "", notes: input.notes || "" }; appendRecord_("AMAZON_PACKAGES", pkg); return { package: pkg, movement }; }
-function listAmazonOutboundActivity() { return readTable_("AMAZON_PACKAGES").sort((a, b) => String(b.packed_at || "").localeCompare(String(a.packed_at || ""))); }
-function matchAmazonPackageScan(payload) { payload = payload || {}; const user = payload.user || {}; requirePermission_(user, "scanner:lookup"); const input = payload.input || payload; const packageId = input.package_id || input.scan_code || input.package_qr_value; const pkg = readTable_("AMAZON_PACKAGES").find((row) => String(row.package_id) === String(packageId) || String(row.package_qr_value) === String(packageId)); if (!pkg) throw new Error("Package was not found."); const match = { scan_match_id: nextId_("AMAZON_SCAN_MATCHES", "scan_match_id", "AMZSCAN"), scanned_at: today_(), scanned_by: user.user_id || user.role, device_id: input.device_id || "WEB_APP", package_id: pkg.package_id, amazon_order_id: input.amazon_order_id || pkg.matched_amazon_order_id || "", amazon_order_item_id: input.amazon_order_item_id || pkg.matched_amazon_order_item_id || "", amazon_sku: input.amazon_sku || pkg.amazon_sku || "", product_id: pkg.product_id, match_status: "MATCHED", match_confidence: 1, exception_code: "", related_pick_task_id: input.related_pick_task_id || "", related_movement_id: input.related_movement_id || "", notes: input.notes || "" }; appendRecord_("AMAZON_SCAN_MATCHES", match); updateTableRecord_("AMAZON_PACKAGES", "package_id", pkg.package_id, { matched_amazon_order_id: match.amazon_order_id, matched_amazon_order_item_id: match.amazon_order_item_id, package_status: "MATCHED" }); return { package: pkg, match }; }
+function today_() {
+  return new Date();
+}
 
-function inventorySnapshot() { const products = byId_(readTable_("PRODUCTS"), "product_id"); const lots = byId_(readTable_("LOTS"), "internal_lot_id"); const locations = byId_(readTable_("LOCATIONS"), "location_id"); const reserved = reservedInventory_(); const grouped = {}; readTable_("INVENTORY_MOVEMENTS").forEach((move) => { const lotId = move.internal_lot_id || ""; const lot = lots[lotId] || {}; const productId = move.product_id || lot.product_id || ""; const locationId = move.to_location_id || lot.current_location_id || ""; const key = [productId, lotId, locationId].join("|"); if (!grouped[key]) grouped[key] = { product_id: productId, internal_lot_id: lotId, location_id: locationId, current_qty: 0 }; grouped[key].current_qty += number_(move.qty_change, 0); }); return Object.keys(grouped).map((key) => { const row = grouped[key]; const product = products[row.product_id] || {}; const lot = lots[row.internal_lot_id] || {}; const reservedQty = reserved[row.internal_lot_id] || 0; return { ...row, product, product_name: product.product_name || "", product_category: product.product_category || "", lot_status: lot.status || "", expiration_date: lot.expiration_date || "", unit_type: lot.unit_type || product.base_unit || "LB", location: locations[row.location_id] || null, reserved_qty: reservedQty, available_qty: row.current_qty - reservedQty, inventory_status: row.current_qty - reservedQty > 0 ? "AVAILABLE" : "EMPTY", days_since_received: lot.received_date ? daysBetween_(lot.received_date, today_()) : "", recommended_action: lot.expiration_date ? "Check FIFO/FEFO" : "" }; }).filter((row) => Math.abs(row.current_qty) > 0.00001); }
-function reservedInventory_() { const reserved = {}; readTable_("PICK_TASKS").forEach((task) => { const status = String(task.reservation_status || "").toUpperCase(); const pickStatus = String(task.pick_status || "").toUpperCase(); if (status === "RESERVED" || pickStatus === "OPEN") { const lotId = task.recommended_internal_lot_id || ""; reserved[lotId] = (reserved[lotId] || 0) + number_(task.qty_to_pick_base || task.qty_to_pick, 0); } }); return reserved; }
+function writeAuditLog_(entry) {
+  try {
+    ensureTableColumns_("AUDIT_LOG", CORE_SCHEMA.AUDIT_LOG);
+    appendRecord_("AUDIT_LOG", {
+      audit_id: nextId_("AUDIT_LOG", "audit_id", "AUDIT"),
+      timestamp: today_(),
+      user_id: entry.user_id || "SYSTEM",
+      role: normalizeRole_(entry.role || "ADMIN"),
+      device_id: entry.device_id || "WEB_APP",
+      action_type: entry.action_type || "SYSTEM_EVENT",
+      table_name: entry.table_name || "",
+      record_id: entry.record_id || "",
+      field_name: entry.field_name || "",
+      old_value: entry.old_value || "",
+      new_value: entry.new_value || "",
+      source_screen: entry.source_screen || "APPS_SCRIPT",
+      notes: entry.notes || ""
+    });
+  } catch (_error) {
+    // Audit logging should never block operations.
+  }
+}
 
-function getDashboard() { const products = listProducts(); const suppliers = listSuppliers(); const purchaseOrders = readTable_("PURCHASE_ORDERS"); const salesOrders = readTable_("SALES_ORDERS"); const movements = readTable_("INVENTORY_MOVEMENTS"); const snapshot = inventorySnapshot(); const lots = readTable_("LOTS"); return { productCount: products.length, supplierCount: suppliers.length, openPoCount: purchaseOrders.filter((po) => ["DRAFT", "SENT", "ORDERED", "IN_TRANSIT", "PARTIALLY_RECEIVED"].indexOf(String(po.po_status || "").toUpperCase()) >= 0).length, lotCount: lots.length, movementCount: movements.length, pendingAmazonPackages: readTable_("AMAZON_PACKAGES").filter((pkg) => !pkg.matched_amazon_order_id).length, inventoryValue: snapshot.reduce((sum, row) => sum + number_(row.current_qty, 0) * number_((byId_(lots, "internal_lot_id")[row.internal_lot_id] || {}).unit_cost, 0), 0), lowStockCount: products.filter((product) => { const qty = snapshot.filter((row) => row.product_id === product.product_id).reduce((sum, row) => sum + number_(row.available_qty, 0), 0); return number_(product.min_stock_qty, 0) > 0 && qty <= number_(product.min_stock_qty, 0); }).length, openSalesOrderCount: salesOrders.filter((so) => ["DRAFT", "CONFIRMED", "PICKED"].indexOf(String(so.status || "").toUpperCase()) >= 0).length } }
-function getOperationalReports() { const products = listProducts(); const suppliers = listSuppliers(); const purchaseOrders = readTable_("PURCHASE_ORDERS"); const purchaseLines = readTable_("PURCHASE_ORDER_LINES"); const receiving = readTable_("RECEIVING"); const snapshot = inventorySnapshot(); const inventoryPlanning = buildInventoryPlanning_(products, suppliers, purchaseOrders, purchaseLines, snapshot); const supplierAnalytics = buildSupplierAnalytics_(suppliers, purchaseOrders, purchaseLines, receiving); const recommendations = inventoryPlanning.filter((row) => row.status === "REORDER" || row.status === "WATCH").map((row) => ({ recommendation_id: "REC-" + row.product_id, recommendation_type: row.status === "REORDER" ? "REORDER" : "WATCH", product_id: row.product_id, product_name: row.product_name, supplier_id: row.supplier_id, supplier_name: row.supplier_name, recommended_qty: Math.max(number_(row.target_stock_level, 0) - number_(row.current_qty, 0), 0), reorder_point: row.reorder_point, target_stock_level: row.target_stock_level, confidence_score: row.status === "REORDER" ? 0.9 : 0.65, reason_text: row.status === "REORDER" ? "Available inventory is at or below reorder point." : "Available inventory is below target stock." })); return { calculated_at: today_(), inventoryPlanning, supplierAnalytics, recommendations, inventorySnapshot: snapshot }; }
-function buildInventoryPlanning_(products, suppliers, purchaseOrders, purchaseLines, snapshot) { const supplierMap = byId_(suppliers, "supplier_id"); const lastSupplierByProduct = {}; purchaseLines.forEach((line) => { if (!lastSupplierByProduct[line.product_id]) lastSupplierByProduct[line.product_id] = line.supplier_id || (purchaseOrders.find((po) => po.po_id === line.po_id) || {}).supplier_id || ""; }); return products.map((product) => { const currentQty = snapshot.filter((row) => row.product_id === product.product_id).reduce((sum, row) => sum + number_(row.available_qty, row.current_qty), 0); const avgDailyUsage = estimateDailyUsage_(product.product_id); const supplierId = lastSupplierByProduct[product.product_id] || ""; const supplier = supplierMap[supplierId] || {}; const avgLead = number_(supplier.lead_time_expected_days, 7) || 7; const safetyStock = Math.max(avgDailyUsage * 3, number_(product.min_stock_qty, 0)); const reorderPoint = Math.max(number_(product.min_stock_qty, 0), avgDailyUsage * avgLead + safetyStock); const targetStock = Math.max(number_(product.target_stock_qty, 0), reorderPoint * 1.5); const status = currentQty <= reorderPoint ? "REORDER" : currentQty <= targetStock ? "WATCH" : "OK"; return { product_id: product.product_id, product_name: product.product_name, supplier_id: supplierId, supplier_name: supplier.supplier_name || "", current_qty: currentQty, average_daily_usage: avgDailyUsage, std_daily_usage: 0, avg_lead_time_days: avgLead, std_lead_time_days: 0, demand_during_lead_time: avgDailyUsage * avgLead, safety_stock: safetyStock, reorder_point: reorderPoint, target_stock_level: targetStock, status }; }); }
-function estimateDailyUsage_(productId) { const ninetyDaysAgo = new Date(today_().getTime() - 90 * 86400000); const usage = readTable_("INVENTORY_MOVEMENTS").filter((move) => move.product_id === productId && number_(move.qty_change, 0) < 0 && (!move.timestamp || new Date(move.timestamp) >= ninetyDaysAgo)).reduce((sum, move) => sum + Math.abs(number_(move.qty_change, 0)), 0); return usage / 90; }
-function buildSupplierAnalytics_(suppliers, purchaseOrders, purchaseLines, receiving) { const totalSpend = purchaseOrders.reduce((sum, po) => sum + number_(po.total_amount, 0), 0); return suppliers.map((supplier) => { const orders = purchaseOrders.filter((po) => po.supplier_id === supplier.supplier_id); const orderIds = {}; orders.forEach((po) => orderIds[po.po_id] = true); const lines = purchaseLines.filter((line) => orderIds[line.po_id]); const received = receiving.filter((row) => row.supplier_id === supplier.supplier_id); const spend = orders.reduce((sum, po) => sum + number_(po.total_amount, 0), 0); return { supplier_id: supplier.supplier_id, supplier_name: supplier.supplier_name, email: supplier.email, phone: supplier.phone, products_bought: Array.from(new Set(lines.map((line) => line.product_id).filter(Boolean))).join(", "), total_orders: orders.length, completed_orders: orders.filter((po) => ["RECEIVED", "CLOSED", "COMPLETE"].indexOf(String(po.po_status || "").toUpperCase()) >= 0).length, total_purchase_amount: spend, spend_share_percent: totalSpend ? spend / totalSpend * 100 : 0, avg_lead_time_days: number_(supplier.lead_time_expected_days, 0), std_lead_time_days: 0, quality_percent: received.length ? received.filter((row) => String(row.quality_status || "PASS").toUpperCase() === "PASS").length / received.length * 100 : 100, product_accuracy_percent: 100, quantity_accuracy_percent: 100 }; }); }
+function sessionUser_(user) {
+  return {
+    authenticated: true,
+    user_id: user.user_id,
+    full_name: user.full_name || user.user_id,
+    role: normalizeRole_(user.role)
+  };
+}
 
-function lookupScan(payload) { const value = String((payload || {}).scanValue || (payload || {}).scan_code || (payload || {}).value || "").trim(); if (!value) throw new Error("Scan value is required."); const product = readTable_("PRODUCTS").find((row) => [row.product_id, row.barcode_or_qr_value, row.amazon_sku, row.wholesale_sku].map(String).indexOf(value) >= 0); if (product) return { type: "PRODUCT", record: product }; const lot = readTable_("LOTS").find((row) => [row.internal_lot_id, row.qr_value, row.supplier_lot_number].map(String).indexOf(value) >= 0); if (lot) return { type: "LOT", record: lot }; const location = readTable_("LOCATIONS").find((row) => [row.location_id, row.qr_value].map(String).indexOf(value) >= 0); if (location) return { type: "LOCATION", record: location }; const poLine = readTable_("PURCHASE_ORDER_LINES").find((row) => [row.po_line_id, row.qr_value].map(String).indexOf(value) >= 0); if (poLine) return { type: "PURCHASE_ORDER_LINE", record: poLine, purchaseOrder: getPurchaseOrderDetail({ po_id: poLine.po_id }) }; const pkg = readTable_("AMAZON_PACKAGES").find((row) => [row.package_id, row.package_qr_value].map(String).indexOf(value) >= 0); if (pkg) return { type: "AMAZON_PACKAGE", record: pkg }; return { type: "NOT_FOUND", scanValue: value }; }
-function validateOperationalSchema() { const results = Object.keys(CORE_SCHEMA).map((sheetName) => { const sheet = spreadsheet_().getSheetByName(sheetName); if (!sheet) return { sheet: sheetName, ok: false, missingSheet: true, missingHeaders: CORE_SCHEMA[sheetName] }; const meta = tableMeta_(sheetName); const missingHeaders = CORE_SCHEMA[sheetName].filter((header) => meta.headers.indexOf(header) < 0); return { sheet: sheetName, ok: missingHeaders.length === 0, missingSheet: false, headerRow: meta.headerRow, missingHeaders }; }); return { spreadsheetId: spreadsheet_().getId(), ok: results.every((result) => result.ok), checkedAt: today_(), results }; }
-function nextBlFolio_() { try { return readTable_("SALES_ORDERS").reduce((max, order) => Math.max(max, number_(order.bl_folio, 0)), 2719) + 1; } catch (_error) { return ""; } }
+function listUsers() {
+  return readTable_("USERS")
+    .filter(isActiveRecord_)
+    .map((user) => ({ ...user, role: normalizeRole_(user.role) }))
+    .sort((a, b) => String(a.full_name || "").localeCompare(String(b.full_name || "")));
+}
+
+function authenticateUser(payload) {
+  payload = payload || {};
+  const pin = String(payload.pin || "").trim();
+  const user = readTable_("USERS").find((item) => isActiveRecord_(item) && String(item.pin || "").trim() === pin);
+  if (!user && pin === "1014") return { authenticated: true, user_id: "ADMIN", full_name: "Admin", role: "ADMIN" };
+  if (!user) throw new Error("Code does not match an active user.");
+  return sessionUser_(user);
+}
+
+function createUser(payload) {
+  payload = payload || {};
+  const actor = payload.user || {};
+  if (normalizeRole_(actor.role) !== "ADMIN") throw new Error("Only an Admin can create users.");
+  const input = payload.input || {};
+  const fullName = String(input.full_name || "").trim();
+  const pin = String(input.pin || "").trim();
+  const role = normalizeRole_(input.role || "OPERATOR");
+  if (!fullName) throw new Error("Full name is required.");
+  if (!/^\d{4}$/.test(pin)) throw new Error("PIN must be exactly 4 digits.");
+  ensureTableColumns_("USERS", CORE_SCHEMA.USERS);
+  if (readTable_("USERS").some((item) => isActiveRecord_(item) && String(item.pin || "").trim() === pin)) {
+    throw new Error("An active user already has that 4-digit code.");
+  }
+  const record = {
+    user_id: nextId_("USERS", "user_id", "USR"),
+    full_name: fullName,
+    role,
+    email: input.email || "",
+    device_assigned: input.device_assigned || "",
+    is_active: true,
+    created_at: today_(),
+    updated_at: today_(),
+    notes: input.notes || "",
+    pin
+  };
+  appendRecord_("USERS", record);
+  writeAuditLog_({ user_id: actor.user_id, role: actor.role, action_type: "CREATE_USER", table_name: "USERS", record_id: record.user_id });
+  return record;
+}
+
+function deactivateUser(payload) {
+  payload = payload || {};
+  const actor = payload.user || {};
+  if (normalizeRole_(actor.role) !== "ADMIN") throw new Error("Only an Admin can remove users.");
+  const userId = String(payload.userId || payload.user_id || "").trim();
+  if (!userId) throw new Error("Choose a user to remove.");
+  updateTableRecord_("USERS", "user_id", userId, { is_active: false, updated_at: today_() });
+  writeAuditLog_({ user_id: actor.user_id, role: actor.role, action_type: "DEACTIVATE_USER", table_name: "USERS", record_id: userId });
+  return { user_id: userId, is_active: false };
+}
+
+function listProducts() {
+  return readTable_("PRODUCTS").filter(isActiveRecord_).sort((a, b) => String(a.product_name || "").localeCompare(String(b.product_name || "")));
+}
+
+function listLots() {
+  return readTable_("LOTS");
+}
+
+function createProduct(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "products:create");
+  const input = payload.input || {};
+  const name = String(input.product_name || "").trim();
+  if (!name) throw new Error("Product name is required.");
+  ensureTableColumns_("PRODUCTS", CORE_SCHEMA.PRODUCTS);
+  const products = readTable_("PRODUCTS");
+  if (products.some((row) => String(row.product_name || "").trim().toLowerCase() === name.toLowerCase())) {
+    throw new Error("A product with this name already exists.");
+  }
+  const productId = input.product_id || nextId_("PRODUCTS", "product_id", "PROD");
+  const record = {
+    product_id: productId,
+    product_name: name,
+    product_category: input.product_category || "General",
+    default_unit: input.default_unit || "",
+    case_weight_lbs: number_(input.case_weight_lbs, 0),
+    amazon_sku: input.amazon_sku || "",
+    wholesale_sku: input.wholesale_sku || "",
+    barcode_or_qr_value: input.barcode_or_qr_value || productId,
+    min_stock_qty: number_(input.min_stock_qty, 0),
+    target_stock_qty: number_(input.target_stock_qty, 0),
+    velocity_class: input.velocity_class || "",
+    storage_zone_preference: input.storage_zone_preference || "",
+    is_active: true,
+    created_at: today_(),
+    updated_at: today_(),
+    notes: input.notes || "",
+    base_unit: input.base_unit || "LB",
+    units_per_purchase_unit: number_(input.units_per_purchase_unit || input.case_weight_lbs, 0),
+    can_break_case: input.can_break_case || "",
+    perishability_days: number_(input.perishability_days, 0)
+  };
+  appendRecord_("PRODUCTS", record);
+  writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "CREATE_PRODUCT", table_name: "PRODUCTS", record_id: record.product_id });
+  return record;
+}
+
+
+
+function updateProductStatus(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "products:create");
+  const productId = String(payload.productId || payload.product_id || "").trim();
+  if (!productId) throw new Error("Product ID is required.");
+  updateTableRecord_("PRODUCTS", "product_id", productId, {
+    is_active: Boolean(payload.isActive !== undefined ? payload.isActive : payload.is_active),
+    updated_at: today_()
+  });
+  writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "UPDATE_PRODUCT_STATUS", table_name: "PRODUCTS", record_id: productId });
+  return readTable_("PRODUCTS").find((row) => String(row.product_id) === productId);
+}
+
+function normalizePartyType_(value) {
+  const normalized = String(value || "VENDOR").trim().toUpperCase();
+  return normalized === "CUSTOMER" ? "CUSTOMER" : "VENDOR";
+}
+
+function listSuppliers() {
+  return readTable_("SUPPLIERS")
+    .filter(isActiveRecord_)
+    .map((supplier) => ({ ...supplier, party_type: normalizePartyType_(supplier.party_type) }))
+    .sort((a, b) => String(a.supplier_name || "").localeCompare(String(b.supplier_name || "")));
+}
+
+function createSupplier(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "suppliers:create");
+  const input = payload.input || {};
+  if (!String(input.supplier_name || "").trim()) throw new Error("Business name is required.");
+  ensureTableColumns_("SUPPLIERS", CORE_SCHEMA.SUPPLIERS);
+  const partyType = normalizePartyType_(input.party_type);
+  const record = {
+    supplier_id: input.supplier_id || nextId_("SUPPLIERS", "supplier_id", partyType === "CUSTOMER" ? "CUST" : "SUP"),
+    supplier_name: input.supplier_name,
+    contact_name: input.contact_name || "",
+    email: input.email || "",
+    phone: input.phone || "",
+    address: input.address || "",
+    payment_terms: input.payment_terms || "Net 30",
+    default_currency: input.default_currency || input.currency || "USD",
+    lead_time_expected_days: number_(input.lead_time_expected_days, 0),
+    is_active: true,
+    created_at: today_(),
+    updated_at: today_(),
+    notes: input.notes || "",
+    party_type: partyType
+  };
+  appendRecord_("SUPPLIERS", record);
+  writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "CREATE_PARTY", table_name: "SUPPLIERS", record_id: record.supplier_id });
+  return record;
+}
+
+function listLocations() {
+  return readTable_("LOCATIONS").filter(isActiveRecord_);
+}
+
+function listPurchaseOrders() {
+  const suppliers = byId_(readTable_("SUPPLIERS"), "supplier_id");
+  return readTable_("PURCHASE_ORDERS").map((po) => ({
+    ...po,
+    supplier: suppliers[po.supplier_id] || null
+  })).sort((a, b) => String(b.order_date || "").localeCompare(String(a.order_date || "")));
+}
+
+function getPurchaseOrderDetail(payload) {
+  const poId = typeof payload === "string" ? payload : String((payload || {}).poId || (payload || {}).po_id || "");
+  const po = readTable_("PURCHASE_ORDERS").find((row) => String(row.po_id) === poId);
+  if (!po) return null;
+  const products = byId_(readTable_("PRODUCTS"), "product_id");
+  const suppliers = byId_(readTable_("SUPPLIERS"), "supplier_id");
+  const lines = readTable_("PURCHASE_ORDER_LINES")
+    .filter((line) => String(line.po_id) === poId)
+    .map((line) => ({ ...line, product: products[line.product_id] || null }));
+  return { po: { ...po, supplier: suppliers[po.supplier_id] || null }, lines };
+}
+
+function createPurchaseOrder(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "purchaseOrders:create");
+  const input = payload.input || {};
+  const supplierId = input.supplier_id || input.vendor_id;
+  const lines = Array.isArray(input.lines) ? input.lines : [];
+  if (!supplierId) throw new Error("Choose a supplier.");
+  if (!lines.length) throw new Error("Add at least one product line.");
+  ensureTableColumns_("PURCHASE_ORDERS", CORE_SCHEMA.PURCHASE_ORDERS);
+  ensureTableColumns_("PURCHASE_ORDER_LINES", CORE_SCHEMA.PURCHASE_ORDER_LINES);
+  const poId = input.po_id || nextId_("PURCHASE_ORDERS", "po_id", "PO");
+  const currency = input.currency || "USD";
+  const shipping = number_(input.shipping_amount, 0);
+  const taxRate = number_(input.tax_rate_percent !== undefined ? input.tax_rate_percent : input.tax_rate, 0);
+  const taxEnabled = input.tax_enabled === true || String(input.tax_enabled).toUpperCase() === "TRUE";
+  let subtotal = 0;
+  const productMap = byId_(readTable_("PRODUCTS"), "product_id");
+  lines.forEach((line) => subtotal += number_(line.qty_ordered || line.quantity, 0) * number_(line.unit_cost || line.cost, 0));
+  const tax = taxEnabled ? subtotal * taxRate / 100 : 0;
+  const po = {
+    po_id: poId,
+    po_status: input.po_status || "DRAFT",
+    supplier_id: supplierId,
+    created_by: user.user_id || user.role,
+    order_date: input.order_date || today_(),
+    expected_delivery_date: input.expected_delivery_date || "",
+    payment_terms: input.payment_terms || "",
+    currency,
+    subtotal_amount: subtotal,
+    tax_amount: tax,
+    shipping_amount: shipping,
+    total_amount: subtotal + tax + shipping,
+    notes: input.notes || "",
+    tax_enabled: taxEnabled,
+    tax_rate: taxRate,
+    ship_via: input.ship_via || "",
+    bill_status: input.bill_status || "NOT_CREATED"
+  };
+  appendRecord_("PURCHASE_ORDERS", po);
+  lines.forEach((line) => {
+    const product = productMap[line.product_id] || {};
+    const qty = number_(line.qty_ordered || line.quantity, 0);
+    const unitCost = number_(line.unit_cost || line.cost, 0);
+    const unitsPer = number_(line.units_per_purchase_unit || product.units_per_purchase_unit || product.case_weight_lbs, 0);
+    const lineRecord = {
+      po_line_id: nextId_("PURCHASE_ORDER_LINES", "po_line_id", "POL"),
+      po_id: poId,
+      supplier_id: supplierId,
+      product_id: line.product_id,
+      line_status: "OPEN",
+      qty_ordered: qty,
+      qty_received_total: 0,
+      qty_remaining: qty,
+      unit_type: line.unit_type || product.default_unit || "CASE",
+      unit_cost: unitCost,
+      currency,
+      line_total: qty * unitCost,
+      supplier_expected_lot_number: line.supplier_expected_lot_number || "",
+      notes: line.notes || "",
+      base_unit: line.base_unit || product.base_unit || "LB",
+      units_per_purchase_unit: unitsPer,
+      expected_base_qty: qty * unitsPer,
+      case_weight_lbs: unitsPer,
+      qr_value: line.qr_value || ""
+    };
+    lineRecord.qr_value = lineRecord.qr_value || lineRecord.po_line_id;
+    appendRecord_("PURCHASE_ORDER_LINES", lineRecord);
+  });
+  writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "CREATE_PO", table_name: "PURCHASE_ORDERS", record_id: poId });
+  const detail = getPurchaseOrderDetail({ po_id: poId });
+  return { ...detail.po, lines: detail.lines };
+}
+
+function purchaseOrderAction(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "purchaseOrders:actions");
+  const poId = payload.poId || payload.po_id;
+  const action = String(payload.action || payload.status || "").toUpperCase();
+  const statusMap = { SEND: "SENT", SENT: "SENT", ORDER: "ORDERED", ORDERED: "ORDERED", CANCEL: "CANCELLED", CANCELLED: "CANCELLED", CLOSE: "CLOSED", CLOSED: "CLOSED" };
+  const nextStatus = statusMap[action] || action;
+  if (!poId || !nextStatus) throw new Error("Choose a purchase order action.");
+  updateTableRecord_("PURCHASE_ORDERS", "po_id", poId, { po_status: nextStatus, updated_at: today_() });
+  writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "PO_" + nextStatus, table_name: "PURCHASE_ORDERS", record_id: poId });
+  return getPurchaseOrderDetail({ po_id: poId });
+}
+
+function generatePurchaseOrderTemplate(payload) {
+  const detail = getPurchaseOrderDetail(payload);
+  if (!detail) throw new Error("Purchase order was not found.");
+  return { ...detail, generated_at: today_(), message: "Template data ready for frontend rendering." };
+}
+
+function receiveProduct(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "receiving:create");
+  const input = payload.input || payload;
+  const poLineId = String(input.po_line_id || "").trim();
+  if (!poLineId) throw new Error("Choose a PO line.");
+  const lines = readTable_("PURCHASE_ORDER_LINES");
+  const line = lines.find((row) => String(row.po_line_id) === poLineId);
+  if (!line) throw new Error("PO line was not found.");
+  const qtyReceived = number_(input.qty_received, 0);
+  const qtyDamaged = number_(input.qty_damaged, 0);
+  const qtyAccepted = Math.max(qtyReceived - qtyDamaged, 0);
+  if (qtyReceived <= 0 || qtyAccepted <= 0) throw new Error("Received quantity must be greater than zero.");
+  const unitsPer = number_(line.units_per_purchase_unit || line.case_weight_lbs, 1);
+  const acceptedBase = qtyAccepted * unitsPer;
+  const lotId = nextId_("LOTS", "internal_lot_id", "LOT");
+  const receivingId = nextId_("RECEIVING", "receiving_id", "RCV");
+  const locationId = input.confirmed_location_id || input.location_id || "";
+  const lot = {
+    internal_lot_id: lotId,
+    product_id: line.product_id,
+    supplier_id: line.supplier_id,
+    supplier_lot_number: input.supplier_lot_number || "",
+    po_id: line.po_id,
+    po_line_id: poLineId,
+    received_date: today_(),
+    original_qty: acceptedBase,
+    current_qty_script: acceptedBase,
+    unit_type: line.base_unit || "LB",
+    unit_cost: line.unit_cost,
+    currency: line.currency || "USD",
+    current_location_id: locationId,
+    status: input.quality_status === "HOLD" ? "HOLD" : "ACTIVE",
+    expiration_date: input.expiration_date || "",
+    qr_value: lotId,
+    label_printed_status: "",
+    created_at: today_(),
+    updated_at: today_(),
+    notes: input.notes || "",
+    purchase_qty_received: qtyAccepted,
+    purchase_unit_type: line.unit_type,
+    pallet_count: number_(input.pallet_count, 0)
+  };
+  const receiving = {
+    receiving_id: receivingId,
+    po_id: line.po_id,
+    po_line_id: poLineId,
+    supplier_id: line.supplier_id,
+    product_id: line.product_id,
+    scan_code: input.scan_code || poLineId,
+    internal_lot_id: lotId,
+    supplier_lot_number: input.supplier_lot_number || "",
+    received_date: today_(),
+    received_by: user.user_id || user.role,
+    qty_received: qtyReceived,
+    qty_damaged: qtyDamaged,
+    qty_accepted: qtyAccepted,
+    unit_type: line.unit_type,
+    quality_score: input.quality_score || "",
+    product_accuracy_score: input.product_accuracy_score || "",
+    over_under_status: "",
+    recommended_location_id: input.recommended_location_id || "",
+    confirmed_location_id: locationId,
+    requires_supervisor_approval: input.quality_status === "HOLD",
+    approval_status: input.quality_status === "HOLD" ? "PENDING" : "APPROVED",
+    notes: input.notes || "",
+    base_unit: line.base_unit || "LB",
+    units_per_purchase_unit: unitsPer,
+    qty_accepted_base: acceptedBase,
+    pallet_count: number_(input.pallet_count, 0),
+    quality_status: input.quality_status || "PASS"
+  };
+  const movement = {
+    movement_id: nextId_("INVENTORY_MOVEMENTS", "movement_id", "MOV"),
+    movement_type: "RECEIVE",
+    timestamp: today_(),
+    user_id: user.user_id || user.role,
+    product_id: line.product_id,
+    internal_lot_id: lotId,
+    qty_change: acceptedBase,
+    unit_type: line.base_unit || "LB",
+    from_location_id: "RECEIVING",
+    to_location_id: locationId,
+    related_po_id: line.po_id,
+    related_receiving_id: receivingId,
+    scan_code: lotId,
+    device_id: input.device_id || "WEB_APP",
+    approval_status: receiving.approval_status,
+    notes: input.notes || ""
+  };
+  appendRecord_("RECEIVING", receiving);
+  appendRecord_("LOTS", lot);
+  appendRecord_("INVENTORY_MOVEMENTS", movement);
+  const prevReceived = number_(line.qty_received_total, 0);
+  const ordered = number_(line.qty_ordered, 0);
+  const newReceived = prevReceived + qtyAccepted;
+  const remaining = Math.max(ordered - newReceived, 0);
+  updateTableRecord_("PURCHASE_ORDER_LINES", "po_line_id", poLineId, {
+    qty_received_total: newReceived,
+    qty_remaining: remaining,
+    line_status: remaining <= 0 ? "RECEIVED" : "PARTIAL"
+  });
+  refreshPurchaseOrderStatus_(line.po_id);
+  writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "RECEIVE_PRODUCT", table_name: "RECEIVING", record_id: receivingId });
+  return { receiving, lot, movement, purchaseOrder: getPurchaseOrderDetail({ po_id: line.po_id }) };
+}
+
+function refreshPurchaseOrderStatus_(poId) {
+  const lines = readTable_("PURCHASE_ORDER_LINES").filter((line) => String(line.po_id) === String(poId));
+  if (!lines.length) return;
+  const allReceived = lines.every((line) => number_(line.qty_remaining, number_(line.qty_ordered, 0)) <= 0);
+  const anyReceived = lines.some((line) => number_(line.qty_received_total, 0) > 0);
+  updateTableRecord_("PURCHASE_ORDERS", "po_id", poId, {
+    po_status: allReceived ? "RECEIVED" : anyReceived ? "PARTIALLY_RECEIVED" : "ORDERED",
+    actual_first_received_date: anyReceived ? today_() : "",
+    actual_completed_date: allReceived ? today_() : ""
+  });
+}
+
+function createOpeningInventory(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "receiving:create");
+  const input = payload.input || {};
+  if (!input.product_name && !input.product_id) throw new Error("Product is required.");
+  const product = input.product_id ? byId_(readTable_("PRODUCTS"), "product_id")[input.product_id] : createProduct({ user, input });
+  const qty = number_(input.qty || input.quantity, 0);
+  const unitWeight = number_(input.purchase_unit_weight || input.case_weight_lbs, 1);
+  if (qty <= 0) throw new Error("Quantity must be greater than zero.");
+  const lotId = nextId_("LOTS", "internal_lot_id", "LOT");
+  const baseQty = qty * unitWeight;
+  const locationId = input.location_id || (Array.isArray(input.location_ids) ? input.location_ids[0] : "");
+  const lot = {
+    internal_lot_id: lotId,
+    product_id: product.product_id,
+    supplier_lot_number: input.supplier_lot_number || "OPENING",
+    received_date: today_(),
+    original_qty: baseQty,
+    current_qty_script: baseQty,
+    unit_type: "LB",
+    unit_cost: number_(input.unit_cost, 0),
+    currency: input.currency || "USD",
+    current_location_id: locationId,
+    status: "ACTIVE",
+    qr_value: lotId,
+    created_at: today_(),
+    updated_at: today_(),
+    notes: input.notes || "Opening inventory count.",
+    purchase_qty_received: qty,
+    purchase_unit_type: input.purchase_unit || "UNIT",
+    pallet_count: number_(input.pallet_count, 0)
+  };
+  const movement = {
+    movement_id: nextId_("INVENTORY_MOVEMENTS", "movement_id", "MOV"),
+    movement_type: "OPENING_INVENTORY",
+    timestamp: today_(),
+    user_id: user.user_id || user.role,
+    product_id: product.product_id,
+    internal_lot_id: lotId,
+    qty_change: baseQty,
+    unit_type: "LB",
+    from_location_id: "OPENING_COUNT",
+    to_location_id: locationId,
+    scan_code: lotId,
+    device_id: "WEB_APP",
+    approval_status: "APPROVED",
+    notes: input.notes || ""
+  };
+  appendRecord_("LOTS", lot);
+  appendRecord_("INVENTORY_MOVEMENTS", movement);
+  writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "OPENING_INVENTORY", table_name: "LOTS", record_id: lotId });
+  return { product, lot, movement };
+}
+
+function listSalesOrders() {
+  return readTable_("SALES_ORDERS").sort((a, b) => String(b.order_date || "").localeCompare(String(a.order_date || "")));
+}
+
+function getSalesOrderDetail(payload) {
+  const salesOrderId = typeof payload === "string" ? payload : String((payload || {}).salesOrderId || (payload || {}).sales_order_id || "");
+  const order = readTable_("SALES_ORDERS").find((row) => String(row.sales_order_id) === salesOrderId);
+  if (!order) return null;
+  const products = byId_(readTable_("PRODUCTS"), "product_id");
+  const lots = byId_(readTable_("LOTS"), "internal_lot_id");
+  const lines = readTable_("SALES_ORDER_LINES")
+    .filter((line) => String(line.sales_order_id) === salesOrderId)
+    .map((line) => ({ ...line, product: products[line.product_id] || null, lot: lots[line.preferred_internal_lot_id] || null }));
+  const pickTasks = readTable_("PICK_TASKS").filter((task) => String(task.sales_order_id) === salesOrderId);
+  return { order, lines, pickTasks };
+}
+
+function createSalesOrder(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "salesOrders:create");
+  const input = payload.input || {};
+  const lines = Array.isArray(input.lines) ? input.lines : [];
+  if (!lines.length) throw new Error("Add at least one sales line.");
+  ensureTableColumns_("SALES_ORDERS", CORE_SCHEMA.SALES_ORDERS);
+  ensureTableColumns_("SALES_ORDER_LINES", CORE_SCHEMA.SALES_ORDER_LINES);
+  const salesOrderId = input.sales_order_id || nextId_("SALES_ORDERS", "sales_order_id", "SO");
+  const currency = input.currency || "USD";
+  const products = byId_(readTable_("PRODUCTS"), "product_id");
+  const lots = byId_(readTable_("LOTS"), "internal_lot_id");
+  let subtotal = 0;
+  let grossProfit = 0;
+  lines.forEach((line) => {
+    const qty = number_(line.qty_ordered || line.quantity, 0);
+    const price = number_(line.unit_price || line.price, 0);
+    const cost = number_(line.unit_cost || (lots[line.preferred_internal_lot_id] || {}).unit_cost, 0);
+    subtotal += qty * price;
+    grossProfit += (price - cost) * qty;
+  });
+  const tax = input.tax_enabled ? subtotal * number_(input.tax_rate_percent !== undefined ? input.tax_rate_percent : input.tax_rate, 0) / 100 : number_(input.tax_amount, 0);
+  const shipping = number_(input.shipping_amount, 0);
+  const order = {
+    sales_order_id: salesOrderId,
+    channel: input.channel || "WHOLESALE",
+    order_source: input.order_source || "WEB_APP",
+    customer_name: input.customer_name || "",
+    customer_email: input.customer_email || "",
+    customer_phone: input.customer_phone || "",
+    amazon_order_id: input.amazon_order_id || "",
+    order_date: input.order_date || today_(),
+    ship_by_date: input.ship_by_date || "",
+    status: input.status || "DRAFT",
+    currency,
+    subtotal_amount: subtotal,
+    tax_amount: tax,
+    shipping_amount: shipping,
+    total_amount: subtotal + tax + shipping,
+    invoice_status: input.invoice_status || "NOT_CREATED",
+    quickbooks_invoice_id: input.quickbooks_invoice_id || "",
+    created_by: user.user_id || user.role,
+    created_at: today_(),
+    updated_at: today_(),
+    notes: input.notes || "",
+    customer_id: input.customer_id || "",
+    ship_method: input.ship_method || "",
+    payment_terms: input.payment_terms || "",
+    tax_enabled: Boolean(input.tax_enabled),
+    tax_rate: number_(input.tax_rate_percent !== undefined ? input.tax_rate_percent : input.tax_rate, 0),
+    estimated_gross_profit: grossProfit,
+    estimated_gross_margin_percent: subtotal ? grossProfit / subtotal * 100 : 0,
+    bl_folio: input.bl_folio || nextBlFolio_(),
+    shipping_address: input.shipping_address || ""
+  };
+  appendRecord_("SALES_ORDERS", order);
+  lines.forEach((line) => {
+    const product = products[line.product_id] || {};
+    const lot = lots[line.preferred_internal_lot_id] || {};
+    const qty = number_(line.qty_ordered || line.quantity, 0);
+    const price = number_(line.unit_price || line.price, 0);
+    const cost = number_(line.unit_cost || lot.unit_cost, 0);
+    appendRecord_("SALES_ORDER_LINES", {
+      sales_order_line_id: nextId_("SALES_ORDER_LINES", "sales_order_line_id", "SOL"),
+      sales_order_id: salesOrderId,
+      channel: order.channel,
+      amazon_order_item_id: line.amazon_order_item_id || "",
+      product_id: line.product_id,
+      amazon_sku: line.amazon_sku || product.amazon_sku || "",
+      wholesale_sku: line.wholesale_sku || product.wholesale_sku || "",
+      qty_ordered: qty,
+      qty_picked: 0,
+      qty_remaining: qty,
+      unit_type: line.unit_type || product.base_unit || "LB",
+      unit_price: price,
+      currency,
+      line_total: qty * price,
+      preferred_internal_lot_id: line.preferred_internal_lot_id || "",
+      preferred_location_id: line.preferred_location_id || lot.current_location_id || "",
+      line_status: "OPEN",
+      notes: line.notes || "",
+      unit_weight_lbs: number_(line.unit_weight_lbs || product.case_weight_lbs, 0),
+      inventory_qty_required: number_(line.inventory_qty_required || qty, qty),
+      inventory_unit_type: line.inventory_unit_type || product.base_unit || "LB",
+      unit_cost: cost,
+      estimated_gross_profit: (price - cost) * qty,
+      expiration_date: line.expiration_date || lot.expiration_date || "",
+      fefo_status: line.fefo_status || ""
+    });
+  });
+  writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "CREATE_SALES_ORDER", table_name: "SALES_ORDERS", record_id: salesOrderId });
+  const detail = getSalesOrderDetail({ sales_order_id: salesOrderId });
+  return { ...detail.order, lines: detail.lines, pickTasks: detail.pickTasks };
+}
+
+function salesOrderAction(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "salesOrders:actions");
+  const salesOrderId = payload.salesOrderId || payload.sales_order_id;
+  const action = String(payload.action || payload.status || "").toUpperCase();
+  if (!salesOrderId || !action) throw new Error("Choose a sales order action.");
+  if (action === "CONFIRM" || action === "CONFIRMED") return confirmSalesOrder_(salesOrderId, user);
+  if (action === "PICK" || action === "PICKED") return pickSalesOrder_(salesOrderId, user);
+  if (action === "SHIP" || action === "SHIPPED") return shipSalesOrder_(salesOrderId, user);
+  if (action === "CANCEL" || action === "CANCELLED") return cancelSalesOrder_(salesOrderId, user);
+  updateTableRecord_("SALES_ORDERS", "sales_order_id", salesOrderId, { status: action, updated_at: today_() });
+  return getSalesOrderDetail({ sales_order_id: salesOrderId });
+}
+
+function confirmSalesOrder_(salesOrderId, user) {
+  const detail = getSalesOrderDetail({ sales_order_id: salesOrderId });
+  if (!detail) throw new Error("Sales order was not found.");
+  detail.lines.forEach((line) => {
+    appendRecord_("PICK_TASKS", {
+      pick_task_id: nextId_("PICK_TASKS", "pick_task_id", "PICK"),
+      sales_order_id: salesOrderId,
+      sales_order_line_id: line.sales_order_line_id,
+      channel: detail.order.channel,
+      task_date: today_(),
+      priority: "NORMAL",
+      product_id: line.product_id,
+      recommended_internal_lot_id: line.preferred_internal_lot_id,
+      recommended_location_id: line.preferred_location_id,
+      qty_to_pick: line.qty_ordered,
+      qty_picked: 0,
+      unit_type: line.unit_type,
+      assigned_to: "",
+      pick_status: "OPEN",
+      scan_code: line.preferred_internal_lot_id,
+      device_id: "WEB_APP",
+      exception_code: "",
+      notes: "",
+      qty_to_pick_base: line.inventory_qty_required || line.qty_ordered,
+      reservation_status: "RESERVED"
+    });
+  });
+  updateTableRecord_("SALES_ORDERS", "sales_order_id", salesOrderId, { status: "CONFIRMED", confirmed_at: today_(), updated_at: today_() });
+  writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "CONFIRM_SALES_ORDER", table_name: "SALES_ORDERS", record_id: salesOrderId });
+  return getSalesOrderDetail({ sales_order_id: salesOrderId });
+}
+
+function pickSalesOrder_(salesOrderId, user) {
+  const tasks = readTable_("PICK_TASKS").filter((task) => String(task.sales_order_id) === String(salesOrderId));
+  tasks.forEach((task) => updateTableRecord_("PICK_TASKS", "pick_task_id", task.pick_task_id, {
+    qty_picked: task.qty_to_pick,
+    pick_status: "PICKED",
+    picked_at: today_(),
+    reservation_status: "PICKED"
+  }));
+  readTable_("SALES_ORDER_LINES").filter((line) => String(line.sales_order_id) === String(salesOrderId)).forEach((line) => {
+    updateTableRecord_("SALES_ORDER_LINES", "sales_order_line_id", line.sales_order_line_id, {
+      qty_picked: line.qty_ordered,
+      qty_remaining: 0,
+      line_status: "PICKED"
+    });
+  });
+  updateTableRecord_("SALES_ORDERS", "sales_order_id", salesOrderId, { status: "PICKED", picked_at: today_(), updated_at: today_() });
+  writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "PICK_SALES_ORDER", table_name: "SALES_ORDERS", record_id: salesOrderId });
+  return getSalesOrderDetail({ sales_order_id: salesOrderId });
+}
+
+function shipSalesOrder_(salesOrderId, user) {
+  const detail = getSalesOrderDetail({ sales_order_id: salesOrderId });
+  if (!detail) throw new Error("Sales order was not found.");
+  detail.pickTasks.forEach((task) => {
+    const qty = -Math.abs(number_(task.qty_to_pick_base || task.qty_to_pick, 0));
+    if (qty === 0) return;
+    appendRecord_("INVENTORY_MOVEMENTS", {
+      movement_id: nextId_("INVENTORY_MOVEMENTS", "movement_id", "MOV"),
+      movement_type: "SALE",
+      timestamp: today_(),
+      user_id: user.user_id || user.role,
+      product_id: task.product_id,
+      internal_lot_id: task.recommended_internal_lot_id,
+      qty_change: qty,
+      unit_type: task.unit_type,
+      from_location_id: task.recommended_location_id,
+      to_location_id: "CUSTOMER",
+      related_sales_order_id: salesOrderId,
+      related_pick_task_id: task.pick_task_id,
+      scan_code: task.scan_code,
+      device_id: task.device_id || "WEB_APP",
+      approval_status: "APPROVED",
+      notes: "Shipped sales order."
+    });
+    updateTableRecord_("PICK_TASKS", "pick_task_id", task.pick_task_id, { pick_status: "SHIPPED", reservation_status: "RELEASED" });
+  });
+  updateTableRecord_("SALES_ORDERS", "sales_order_id", salesOrderId, { status: "SHIPPED", shipped_at: today_(), updated_at: today_() });
+  writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "SHIP_SALES_ORDER", table_name: "SALES_ORDERS", record_id: salesOrderId });
+  return getSalesOrderDetail({ sales_order_id: salesOrderId });
+}
+
+function cancelSalesOrder_(salesOrderId, user) {
+  readTable_("PICK_TASKS").filter((task) => String(task.sales_order_id) === String(salesOrderId)).forEach((task) => {
+    updateTableRecord_("PICK_TASKS", "pick_task_id", task.pick_task_id, { pick_status: "CANCELLED", reservation_status: "RELEASED" });
+  });
+  updateTableRecord_("SALES_ORDERS", "sales_order_id", salesOrderId, { status: "CANCELLED", updated_at: today_() });
+  writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "CANCEL_SALES_ORDER", table_name: "SALES_ORDERS", record_id: salesOrderId });
+  return getSalesOrderDetail({ sales_order_id: salesOrderId });
+}
+
+function recordInventoryMovement(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "inventory:adjust");
+  const input = payload.input || payload;
+  const movement = {
+    movement_id: nextId_("INVENTORY_MOVEMENTS", "movement_id", "MOV"),
+    movement_type: input.movement_type || "ADJUSTMENT",
+    timestamp: today_(),
+    user_id: user.user_id || user.role,
+    product_id: input.product_id,
+    internal_lot_id: input.internal_lot_id,
+    package_id: input.package_id || "",
+    qty_change: number_(input.qty_change, 0),
+    unit_type: input.unit_type || "LB",
+    from_location_id: input.from_location_id || "",
+    to_location_id: input.to_location_id || "",
+    related_po_id: input.related_po_id || "",
+    related_receiving_id: input.related_receiving_id || "",
+    related_sales_order_id: input.related_sales_order_id || "",
+    related_pick_task_id: input.related_pick_task_id || "",
+    related_amazon_order_id: input.related_amazon_order_id || "",
+    scan_code: input.scan_code || input.internal_lot_id || "",
+    device_id: input.device_id || "WEB_APP",
+    approval_status: input.approval_status || "APPROVED",
+    notes: input.notes || ""
+  };
+  if (!movement.product_id || !movement.internal_lot_id || movement.qty_change === 0) throw new Error("Product, lot, and quantity change are required.");
+  appendRecord_("INVENTORY_MOVEMENTS", movement);
+  writeAuditLog_({ user_id: user.user_id, role: user.role, action_type: "INVENTORY_MOVEMENT", table_name: "INVENTORY_MOVEMENTS", record_id: movement.movement_id });
+  return movement;
+}
+
+function recordAmazonOutbound(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "inventory:adjust");
+  const input = payload.input || payload;
+  const pkgId = input.package_id || nextId_("AMAZON_PACKAGES", "package_id", "PKG");
+  const movement = recordInventoryMovement({
+    user,
+    input: {
+      movement_type: "AMAZON_OUT",
+      product_id: input.product_id,
+      internal_lot_id: input.source_internal_lot_id || input.internal_lot_id,
+      package_id: pkgId,
+      qty_change: -Math.abs(number_(input.qty_product_used || input.qty_change, 0)),
+      unit_type: input.unit_type || "LB",
+      from_location_id: input.current_location_id || input.from_location_id || "",
+      to_location_id: "AMAZON_PACKAGE",
+      related_amazon_order_id: input.matched_amazon_order_id || "",
+      scan_code: pkgId,
+      notes: input.notes || ""
+    }
+  });
+  const pkg = {
+    package_id: pkgId,
+    package_qr_value: input.package_qr_value || pkgId,
+    amazon_sku: input.amazon_sku || "",
+    product_id: input.product_id,
+    source_internal_lot_id: input.source_internal_lot_id || input.internal_lot_id,
+    qty_product_used: Math.abs(number_(input.qty_product_used || input.qty_change, 0)),
+    unit_type: input.unit_type || "LB",
+    packed_by: user.user_id || user.role,
+    packed_at: today_(),
+    package_status: input.package_status || "PACKED",
+    current_location_id: input.current_location_id || "",
+    matched_amazon_order_id: input.matched_amazon_order_id || "",
+    matched_amazon_order_item_id: input.matched_amazon_order_item_id || "",
+    shipped_at: "",
+    notes: input.notes || ""
+  };
+  appendRecord_("AMAZON_PACKAGES", pkg);
+  return { package: pkg, movement };
+}
+
+function listAmazonOutboundActivity() {
+  return readTable_("AMAZON_PACKAGES").sort((a, b) => String(b.packed_at || "").localeCompare(String(a.packed_at || "")));
+}
+
+function matchAmazonPackageScan(payload) {
+  payload = payload || {};
+  const user = payload.user || {};
+  requirePermission_(user, "scanner:lookup");
+  const input = payload.input || payload;
+  const packageId = input.package_id || input.scan_code || input.package_qr_value;
+  const pkg = readTable_("AMAZON_PACKAGES").find((row) => String(row.package_id) === String(packageId) || String(row.package_qr_value) === String(packageId));
+  if (!pkg) throw new Error("Package was not found.");
+  const match = {
+    scan_match_id: nextId_("AMAZON_SCAN_MATCHES", "scan_match_id", "AMZSCAN"),
+    scanned_at: today_(),
+    scanned_by: user.user_id || user.role,
+    device_id: input.device_id || "WEB_APP",
+    package_id: pkg.package_id,
+    amazon_order_id: input.amazon_order_id || pkg.matched_amazon_order_id || "",
+    amazon_order_item_id: input.amazon_order_item_id || pkg.matched_amazon_order_item_id || "",
+    amazon_sku: input.amazon_sku || pkg.amazon_sku || "",
+    product_id: pkg.product_id,
+    match_status: "MATCHED",
+    match_confidence: 1,
+    exception_code: "",
+    related_pick_task_id: input.related_pick_task_id || "",
+    related_movement_id: input.related_movement_id || "",
+    notes: input.notes || ""
+  };
+  appendRecord_("AMAZON_SCAN_MATCHES", match);
+  updateTableRecord_("AMAZON_PACKAGES", "package_id", pkg.package_id, {
+    matched_amazon_order_id: match.amazon_order_id,
+    matched_amazon_order_item_id: match.amazon_order_item_id,
+    package_status: "MATCHED"
+  });
+  return { package: pkg, match };
+}
+
+function inventorySnapshot() {
+  const products = byId_(readTable_("PRODUCTS"), "product_id");
+  const lots = byId_(readTable_("LOTS"), "internal_lot_id");
+  const locationMap = byId_(readTable_("LOCATIONS"), "location_id");
+  const reserved = reservedInventory_();
+  const grouped = {};
+
+  readTable_("INVENTORY_MOVEMENTS").forEach((move) => {
+    const qty = number_(move.qty_change, 0);
+    const lotId = move.internal_lot_id || "";
+    const lot = lots[lotId] || {};
+    const productId = move.product_id || lot.product_id || "";
+    const locationId = qty < 0
+      ? (move.from_location_id || lot.current_location_id || move.to_location_id || "")
+      : (move.to_location_id || lot.current_location_id || move.from_location_id || "");
+    const key = [productId, lotId, locationId].join("|");
+    if (!grouped[key]) grouped[key] = { product_id: productId, internal_lot_id: lotId, location_id: locationId, current_qty: 0 };
+    grouped[key].current_qty += qty;
+  });
+
+  return Object.keys(grouped).map((key) => {
+    const row = grouped[key];
+    const product = products[row.product_id] || {};
+    const lot = lots[row.internal_lot_id] || {};
+    const reservedQty = reserved[row.internal_lot_id] || 0;
+    return {
+      ...row,
+      product_name: product.product_name || "",
+      product_category: product.product_category || "",
+      lot_status: lot.status || "",
+      expiration_date: lot.expiration_date || "",
+      location_label: row.location_id,
+      location: locationMap[row.location_id] || null,
+      reserved_qty: reservedQty,
+      available_qty: row.current_qty - reservedQty,
+      unit_type: lot.unit_type || product.base_unit || "LB"
+    };
+  }).filter((row) => Math.abs(row.current_qty) > 0.00001);
+}
+
+function reservedInventory_() {
+  const reserved = {};
+  readTable_("PICK_TASKS").forEach((task) => {
+    const status = String(task.reservation_status || "").toUpperCase();
+    const pickStatus = String(task.pick_status || "").toUpperCase();
+    if (status === "RESERVED" || pickStatus === "OPEN") {
+      const lotId = task.recommended_internal_lot_id || "";
+      reserved[lotId] = (reserved[lotId] || 0) + number_(task.qty_to_pick_base || task.qty_to_pick, 0);
+    }
+  });
+  return reserved;
+}
+
+function inventoryValueFromLots_() {
+  return readTable_("LOTS")
+    .filter((lot) => String(lot.status || "ACTIVE").toUpperCase() === "ACTIVE")
+    .reduce((sum, lot) => {
+      return sum + number_(lot.purchase_qty_received, 0) * number_(lot.unit_cost, 0);
+    }, 0);
+}
+function getDashboard() {
+  const products = listProducts();
+  const suppliers = listSuppliers();
+  const purchaseOrders = readTable_("PURCHASE_ORDERS");
+  const salesOrders = readTable_("SALES_ORDERS");
+  const movements = readTable_("INVENTORY_MOVEMENTS");
+  const snapshot = inventorySnapshot();
+  const lotMap = byId_(readTable_("LOTS"), "internal_lot_id");
+  return {
+    productCount: products.length,
+    supplierCount: suppliers.length,
+    openPoCount: purchaseOrders.filter((po) => ["DRAFT", "SENT", "ORDERED", "IN_TRANSIT", "PARTIALLY_RECEIVED"].indexOf(String(po.po_status || "").toUpperCase()) >= 0).length,
+    lotCount: readTable_("LOTS").length,
+    movementCount: movements.length,
+    pendingAmazonPackages: readTable_("AMAZON_PACKAGES").filter((pkg) => !pkg.matched_amazon_order_id).length,
+    inventoryValue: inventoryValueFromLots_(),
+    lowStockCount: products.filter((product) => {
+      const qty = snapshot.filter((row) => row.product_id === product.product_id).reduce((sum, row) => sum + number_(row.available_qty, 0), 0);
+      return number_(product.min_stock_qty, 0) > 0 && qty <= number_(product.min_stock_qty, 0);
+    }).length,
+    openSalesOrderCount: salesOrders.filter((so) => ["DRAFT", "CONFIRMED", "PICKED"].indexOf(String(so.status || "").toUpperCase()) >= 0).length
+  };
+}
+
+function getOperationalReports() {
+  const products = listProducts();
+  const suppliers = listSuppliers();
+  const purchaseOrders = readTable_("PURCHASE_ORDERS");
+  const purchaseLines = readTable_("PURCHASE_ORDER_LINES");
+  const receiving = readTable_("RECEIVING");
+  const snapshot = inventorySnapshot();
+
+  const inventoryPlanning = buildInventoryPlanning_(products, suppliers, purchaseOrders, purchaseLines, snapshot);
+  const supplierAnalytics = buildSupplierAnalytics_(suppliers, purchaseOrders, purchaseLines, receiving);
+  const recommendations = inventoryPlanning
+    .filter((row) => row.status === "REORDER" || row.status === "WATCH")
+    .map((row) => ({
+      recommendation_id: "REC-" + row.product_id,
+      recommendation_type: row.status,
+      product_id: row.product_id,
+      product_name: row.product_name,
+      supplier_id: row.supplier_id,
+      supplier_name: row.supplier_name,
+      recommended_qty: Math.max(number_(row.target_stock_level, 0) - number_(row.current_qty, 0), 0),
+      reorder_point: row.reorder_point,
+      target_stock_level: row.target_stock_level,
+      confidence_score: row.status === "REORDER" ? 0.9 : 0.65,
+      reason_text: row.status === "REORDER" ? "Available inventory is at or below reorder point." : "Available inventory is below target stock."
+    }));
+
+  return {
+    calculated_at: today_(),
+    inventoryPlanning,
+    supplierAnalytics,
+    recommendations,
+    inventorySnapshot: snapshot
+  };
+}
+
+function buildInventoryPlanning_(products, suppliers, purchaseOrders, purchaseLines, snapshot) {
+  const supplierMap = byId_(suppliers, "supplier_id");
+  const poMap = byId_(purchaseOrders, "po_id");
+  const supplierByProduct = {};
+  purchaseLines.forEach((line) => {
+    if (!supplierByProduct[line.product_id]) {
+      supplierByProduct[line.product_id] = line.supplier_id || (poMap[line.po_id] || {}).supplier_id || "";
+    }
+  });
+
+  return products.map((product) => {
+    const currentQty = snapshot
+      .filter((row) => row.product_id === product.product_id)
+      .reduce((sum, row) => sum + number_(row.available_qty, row.current_qty), 0);
+    const averageDailyUsage = estimateDailyUsage_(product.product_id);
+    const supplierId = supplierByProduct[product.product_id] || "";
+    const supplier = supplierMap[supplierId] || {};
+    const avgLeadTime = number_(supplier.lead_time_expected_days, 7) || 7;
+    const safetyStock = Math.max(number_(product.min_stock_qty, 0), averageDailyUsage * 3);
+    const reorderPoint = Math.max(number_(product.min_stock_qty, 0), averageDailyUsage * avgLeadTime + safetyStock);
+    const targetStock = Math.max(number_(product.target_stock_qty, 0), reorderPoint * 1.5);
+    const status = currentQty <= reorderPoint ? "REORDER" : currentQty <= targetStock ? "WATCH" : "OK";
+    return {
+      product_id: product.product_id,
+      product_name: product.product_name,
+      supplier_id: supplierId,
+      supplier_name: supplier.supplier_name || "",
+      current_qty: currentQty,
+      average_daily_usage: averageDailyUsage,
+      std_daily_usage: 0,
+      avg_lead_time_days: avgLeadTime,
+      std_lead_time_days: 0,
+      demand_during_lead_time: averageDailyUsage * avgLeadTime,
+      safety_stock: safetyStock,
+      reorder_point: reorderPoint,
+      target_stock_level: targetStock,
+      status
+    };
+  });
+}
+
+function estimateDailyUsage_(productId) {
+  const since = new Date(today_().getTime() - 90 * 86400000);
+  const usage = readTable_("INVENTORY_MOVEMENTS")
+    .filter((move) => move.product_id === productId && number_(move.qty_change, 0) < 0 && (!move.timestamp || new Date(move.timestamp) >= since))
+    .reduce((sum, move) => sum + Math.abs(number_(move.qty_change, 0)), 0);
+  return usage / 90;
+}
+
+function buildSupplierAnalytics_(suppliers, purchaseOrders, purchaseLines, receiving) {
+  const totalSpend = purchaseOrders.reduce((sum, po) => sum + number_(po.total_amount, 0), 0);
+  return suppliers.map((supplier) => {
+    const orders = purchaseOrders.filter((po) => po.supplier_id === supplier.supplier_id);
+    const orderIds = {};
+    orders.forEach((po) => orderIds[po.po_id] = true);
+    const lines = purchaseLines.filter((line) => orderIds[line.po_id]);
+    const received = receiving.filter((row) => row.supplier_id === supplier.supplier_id);
+    const spend = orders.reduce((sum, po) => sum + number_(po.total_amount, 0), 0);
+    return {
+      supplier_id: supplier.supplier_id,
+      supplier_name: supplier.supplier_name,
+      email: supplier.email,
+      phone: supplier.phone,
+      products_bought: Array.from(new Set(lines.map((line) => line.product_id).filter(Boolean))).join(", "),
+      total_orders: orders.length,
+      completed_orders: orders.filter((po) => ["RECEIVED", "CLOSED", "COMPLETE"].indexOf(String(po.po_status || "").toUpperCase()) >= 0).length,
+      total_purchase_amount: spend,
+      spend_share_percent: totalSpend ? spend / totalSpend * 100 : 0,
+      avg_lead_time_days: number_(supplier.lead_time_expected_days, 0),
+      std_lead_time_days: 0,
+      quality_percent: received.length ? received.filter((row) => String(row.quality_status || "PASS").toUpperCase() === "PASS").length / received.length * 100 : 100,
+      product_accuracy_percent: 100,
+      quantity_accuracy_percent: 100
+    };
+  });
+}
+
+function lookupScan(payload) {
+  payload = payload || {};
+  const value = String(payload.scanValue || payload.scan_code || payload.value || "").trim();
+  if (!value) throw new Error("Scan value is required.");
+  const product = readTable_("PRODUCTS").find((row) => [row.product_id, row.barcode_or_qr_value, row.amazon_sku, row.wholesale_sku].map(String).indexOf(value) >= 0);
+  if (product) return { type: "PRODUCT", record: product };
+  const lot = readTable_("LOTS").find((row) => [row.internal_lot_id, row.qr_value, row.supplier_lot_number].map(String).indexOf(value) >= 0);
+  if (lot) return { type: "LOT", record: lot };
+  const location = readTable_("LOCATIONS").find((row) => [row.location_id, row.qr_value].map(String).indexOf(value) >= 0);
+  if (location) return { type: "LOCATION", record: location };
+  const poLine = readTable_("PURCHASE_ORDER_LINES").find((row) => [row.po_line_id, row.qr_value].map(String).indexOf(value) >= 0);
+  if (poLine) return { type: "PURCHASE_ORDER_LINE", record: poLine, purchaseOrder: getPurchaseOrderDetail({ po_id: poLine.po_id }) };
+  const pkg = readTable_("AMAZON_PACKAGES").find((row) => [row.package_id, row.package_qr_value].map(String).indexOf(value) >= 0);
+  if (pkg) return { type: "AMAZON_PACKAGE", record: pkg };
+  return { type: "NOT_FOUND", scanValue: value };
+}
+
+function validateOperationalSchema() {
+  const results = Object.keys(CORE_SCHEMA).map((sheetName) => {
+    const sheet = spreadsheet_().getSheetByName(sheetName);
+    if (!sheet) return { sheet: sheetName, ok: false, missingSheet: true, missingHeaders: CORE_SCHEMA[sheetName] };
+    const meta = tableMeta_(sheetName);
+    const missingHeaders = CORE_SCHEMA[sheetName].filter((header) => meta.headers.indexOf(header) < 0);
+    return { sheet: sheetName, ok: missingHeaders.length === 0, missingSheet: false, headerRow: meta.headerRow, missingHeaders };
+  });
+  return {
+    spreadsheetId: spreadsheet_().getId(),
+    ok: results.every((result) => result.ok),
+    checkedAt: today_(),
+    results
+  };
+}
+
+function byId_(rows, idColumn) {
+  return (rows || []).reduce((map, row) => {
+    map[row[idColumn]] = row;
+    return map;
+  }, {});
+}
+
+function nextBlFolio_() {
+  try {
+    return readTable_("SALES_ORDERS").reduce((max, order) => Math.max(max, number_(order.bl_folio, 0)), 2719) + 1;
+  } catch (_error) {
+    return "";
+  }
+}
