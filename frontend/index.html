@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>San Jose Operations Prototype</title>
     <link rel="preload" as="image" href="./operations-center-bg.jpg" fetchpriority="high">
-    <link rel="stylesheet" href="./css/styles.css?v=salesproduct1">
+    <link rel="stylesheet" href="./css/styles.css?v=mobilehome1">
     <link rel="stylesheet" href="./css/reports-mobile.css?v=opsreports3">
     <link rel="stylesheet" href="./css/smooth.css?v=smooth1">
-    <script type="module" src="./js/app-smooth1.js?v=salesproduct1"></script>
+    <script type="module" src="./js/app-smooth1.js?v=mobilehome1"></script>
   </head>
   <body>
     <section id="loginScreen" class="login-screen" aria-label="Operations Center sign in">
@@ -46,7 +46,12 @@
 
       <main class="shell">
         <header class="topbar">
-          <button id="menuToggle" class="icon-button" type="button" aria-label="Toggle menu">☰</button>
+          <div class="mobile-nav-actions">
+            <button id="mobileHomeButton" class="icon-button mobile-home-button" type="button" aria-label="Warehouse home" title="Warehouse home">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8"></path><path d="M5 10v10h14V10"></path><path d="M9 20v-6h6v6"></path></svg>
+            </button>
+            <button id="menuToggle" class="icon-button" type="button" aria-label="Open full navigation" title="Open full navigation">☰</button>
+          </div>
           <div>
             <h1 id="pageTitle">Dashboard</h1>
             <p id="pageSubtitle">Spreadsheet-backed frontend prototype</p>

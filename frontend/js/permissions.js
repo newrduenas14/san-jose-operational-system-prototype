@@ -55,6 +55,7 @@ export function requirePermission(user, permission) {
 
 export function allowedPages(user) {
   const pages = [
+    { id: "mobileHome", label: "Warehouse Home", permission: "dashboard:view", hidden: true },
     { id: "dashboard", label: "Dashboard", permission: "dashboard:view" },
     { id: "products", label: "Products", permission: "products:view" },
     { id: "suppliers", label: "Customers & Vendors", permission: "suppliers:view" },

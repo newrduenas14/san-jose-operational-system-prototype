@@ -1,7 +1,7 @@
 import { warmOperationalCache } from "./api-smooth1.js?v=pin1";
 import { getSession, signIn, signOut } from "./auth.js?v=pin1";
-import { renderNavigation, renderRoute, configureRouter } from "./router.js?v=orders1";
-import { allowedPages } from "./permissions.js?v=orders1";
+import { renderNavigation, renderRoute, configureRouter, navigate } from "./router.js?v=mobilehome1";
+import { allowedPages } from "./permissions.js?v=mobilehome1";
 import { enableTableFilters } from "./utils.js?v=filters1";
 import * as dashboard from "../pages/dashboard.js?v=refine1";
 import * as products from "../pages/products.js?v=refine1";
@@ -16,6 +16,7 @@ import * as scanner from "../pages/scannerTest.js?v=parties1";
 import * as amazon from "../pages/amazon.js?v=refine1";
 import * as reports from "../pages/reports.js?v=refine1";
 import * as admin from "../pages/admin.js?v=pin1";
+import * as mobileHome from "../pages/mobileHome.js?v=mobilehome1";
 
 const view = document.getElementById("view");
 const title = document.getElementById("pageTitle");
@@ -24,6 +25,7 @@ let user = getSession();
 let renderToken = 0;
 
 const routes = {
+  mobileHome,
   dashboard,
   products,
   suppliers,
@@ -57,6 +59,10 @@ function renderSessionIdentity() {
 
 async function renderAppRoute(page) {
   const token = ++renderToken;
+  if (page === "mobileHome" && !usesWarehouseHome()) {
+    navigate("dashboard");
+    return;
+  }
   const allowed = allowedPages(user);
   const allowedIds = allowed.map((item) => item.id);
   const safePage = allowedIds.includes(page) ? page : allowed[0]?.id || "dashboard";
@@ -66,6 +72,7 @@ async function renderAppRoute(page) {
   }
 
   const label = allowed.find((item) => item.id === safePage)?.label || "Page";
+  document.body.classList.toggle("mobile-home-mode", safePage === "mobileHome");
   renderNavigation(user);
   title.textContent = label;
   subtitle.textContent = "Loading...";
@@ -112,6 +119,15 @@ function loadingScreen(label) {
 document.getElementById("menuToggle").addEventListener("click", () => {
   document.body.classList.toggle("menu-open");
 });
+document.getElementById("mobileHomeButton").addEventListener("click", () => {
+  document.body.classList.remove("menu-open");
+  navigate("mobileHome");
+});
+
+function usesWarehouseHome() {
+  return window.innerWidth <= 900
+    || (window.innerWidth <= 1366 && window.matchMedia("(pointer: coarse)").matches);
+}
 
 function showApp() {
   document.body.classList.remove("login-mode");
@@ -127,6 +143,7 @@ async function completeLogin() {
   try {
     document.getElementById("pinError").textContent = "";
     user = await signIn(document.getElementById("pinInput").value);
+    if (usesWarehouseHome()) window.location.hash = "mobileHome";
     showApp();
   } catch (error) {
     document.getElementById("pinError").textContent = error.message;
@@ -147,7 +164,10 @@ document.getElementById("signOutButton").addEventListener("click", () => {
 });
 
 configureRouter(routes, renderAppRoute);
-if (user) showApp();
+if (user) {
+  if (usesWarehouseHome() && !window.location.hash) window.location.hash = "mobileHome";
+  showApp();
+}
 else {
   document.body.classList.add("login-mode");
   document.getElementById("pinInput").focus();

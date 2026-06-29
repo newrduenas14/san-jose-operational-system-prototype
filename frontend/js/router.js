@@ -1,4 +1,4 @@
-import { allowedPages } from "./permissions.js?v=orders1";
+import { allowedPages } from "./permissions.js?v=mobilehome1";
 
 let currentPage = "dashboard";
 let routes = {};
