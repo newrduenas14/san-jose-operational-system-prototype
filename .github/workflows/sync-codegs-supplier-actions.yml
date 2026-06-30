@@ -120,3 +120,5 @@ function deactivateSupplier(payload) {
           git add apps-script/Code.gs
           git commit -m "Merge supplier edit delete into Code.gs"
           git push
+
+# Triggered manually by ChatGPT on request to make Code.gs the single paste-ready Apps Script source.
