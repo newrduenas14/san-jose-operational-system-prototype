@@ -1,11 +1,11 @@
-import { warmOperationalCache } from "./api-smooth1.js?v=buttons1";
+import { warmOperationalCache } from "./api-smooth1.js?v=buttons2";
 import { getSession, signIn, signOut } from "./auth.js?v=pin1";
 import { renderNavigation, renderRoute, configureRouter, navigate } from "./router.js?v=mobilehome1";
 import { allowedPages } from "./permissions.js?v=mobilehome1";
 import { enableTableFilters, enableTableSorting } from "./utils.js?v=buttons1";
 import * as dashboard from "../pages/dashboard.js?v=refine1";
 import * as products from "../pages/products.js?v=qa1";
-import * as suppliers from "../pages/suppliers.js?v=parties2";
+import * as suppliers from "../pages/suppliers.js?v=parties3";
 import * as orders from "../pages/orders.js?v=orders1";
 import * as purchaseOrders from "../pages/purchaseOrders.js?v=qa1";
 import * as salesOrders from "../pages/salesOrders.js?v=salesproduct1";
