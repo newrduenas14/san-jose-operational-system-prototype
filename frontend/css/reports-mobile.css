@@ -158,6 +158,38 @@ button.report-block small {
   font-size: 13px;
 }
 
+/* Requested final report-card look: keep the green boxes, make all words white. */
+.report-summary-card,
+.card.report-block,
+button.report-block,
+.report-summary-card.selected,
+.card.report-block.selected,
+button.report-block.selected {
+  background: #226b3d !important;
+  border-color: #1f5f37 !important;
+  color: #ffffff !important;
+}
+
+.report-summary-card *,
+.card.report-block *,
+button.report-block * {
+  color: #ffffff !important;
+}
+
+.report-summary-card strong,
+.card.report-block strong,
+button.report-block strong {
+  color: #ffffff !important;
+}
+
+.report-summary-card small,
+.card.report-block small,
+button.report-block small,
+.report-card-label,
+.report-summary-card em {
+  color: rgba(255,255,255,.86) !important;
+}
+
 @media (max-width: 1200px) {
   .report-summary-grid,
   .formula-strip {
