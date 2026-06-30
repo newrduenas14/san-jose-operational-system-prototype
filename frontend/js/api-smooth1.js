@@ -59,7 +59,11 @@ export async function updateProductStatus(user, productId, isActive) {
 }
 
 export async function createSupplier(user, input) {
-  return mutate(() => base.createSupplier(user, input));
+  try {
+    return await mutate(() => base.createSupplier(user, input));
+  } catch (error) {
+    throw customerVendorSaveError(error);
+  }
 }
 
 export async function createPurchaseOrder(user, input) {
@@ -126,4 +130,15 @@ async function mutate(load) {
   const result = await load();
   clearApiCache();
   return result;
+}
+
+function customerVendorSaveError(error) {
+  const message = String(error?.message || error || "");
+  if (message.includes("Unknown action")) {
+    return new Error("Customer/vendor saving is ready in GitHub, but the deployed Google Apps Script is not current. Copy apps-script/Code.gs into Apps Script and deploy a new Web App version.");
+  }
+  if (message.includes("timed out") || message.includes("Could not reach Apps Script")) {
+    return new Error("Customer/vendor saving could not reach the spreadsheet backend. Check the Apps Script /exec URL and Web App access settings.");
+  }
+  return error;
 }
