@@ -1,65 +1,94 @@
-import { createSupplier, listSuppliers } from "../js/api-smooth1.js?v=buttons1";
+import { createSupplier, deactivateSupplier, listSuppliers, updateSupplier } from "../js/api-smooth1.js?v=buttons2";
 import { can } from "../js/permissions.js";
 import { enableTableSorting, escapeHtml, formToObject, notice, status, table } from "../js/utils.js";
 
 export async function render(ctx) {
   ctx.setTitle("Customers & Vendors", "Manage the companies you buy from and sell to");
   const parties = await listSuppliers();
-  const counts = partyCounts(parties);
+  const visibleParties = parties.filter(isActive);
+  const counts = partyCounts(visibleParties);
+  const canCreate = can(ctx.user, "suppliers:create");
+  const canEdit = can(ctx.user, "suppliers:edit");
+  const headers = [
+    { label: "Type", sortable: true, sortValue: (row) => partyType(row), render: (row) => status(partyType(row)) },
+    { label: "Record ID", key: "supplier_id", sortable: true },
+    { label: "Name", key: "supplier_name", sortable: true },
+    { label: "Contact", key: "contact_name", sortable: true },
+    { label: "Email", key: "email", sortable: true },
+    { label: "Phone", key: "phone" },
+    {
+      label: "Lead Days",
+      sortable: true,
+      sortType: "number",
+      sortValue: (row) => Number(row.lead_time_expected_days || 0),
+      render: (row) => partyType(row) === "VENDOR" ? escapeHtml(row.lead_time_expected_days || "") : ""
+    },
+    { label: "Status", sortable: true, sortValue: (row) => isActive(row) ? "ACTIVE" : "INACTIVE", render: (row) => status(isActive(row) ? "ACTIVE" : "INACTIVE") }
+  ];
+  if (canEdit) headers.push({ label: "Actions", render: (row) => partyActions(row) });
 
   ctx.view.innerHTML = `
     <div class="grid">
-      ${can(ctx.user, "suppliers:create") ? supplierFormPanel() : ""}
+      ${canCreate || canEdit ? supplierFormPanel() : ""}
       <section class="panel">
         <div class="panel-header">
           <div>
             <h2>Business Directory</h2>
             <p class="muted">${counts.customers} customer${counts.customers === 1 ? "" : "s"} · ${counts.vendors} vendor${counts.vendors === 1 ? "" : "s"}</p>
           </div>
-          ${can(ctx.user, "suppliers:create") ? `
+          ${canCreate ? `
             <div class="actions">
               <button class="btn secondary" type="button" data-open-party-form="CUSTOMER">Add Customer</button>
               <button class="btn" type="button" data-open-party-form="VENDOR">Add Vendor</button>
             </div>
           ` : ""}
         </div>
-        ${table([
-          { label: "Type", sortable: true, sortValue: (row) => partyType(row), render: (row) => status(partyType(row)) },
-          { label: "Record ID", key: "supplier_id", sortable: true },
-          { label: "Name", key: "supplier_name", sortable: true },
-          { label: "Contact", key: "contact_name", sortable: true },
-          { label: "Email", key: "email", sortable: true },
-          { label: "Phone", key: "phone" },
-          {
-            label: "Lead Days",
-            sortable: true,
-            sortType: "number",
-            sortValue: (row) => Number(row.lead_time_expected_days || 0),
-            render: (row) => partyType(row) === "VENDOR" ? escapeHtml(row.lead_time_expected_days || "") : ""
-          },
-          { label: "Status", sortable: true, sortValue: (row) => isActive(row) ? "ACTIVE" : "INACTIVE", render: (row) => status(isActive(row) ? "ACTIVE" : "INACTIVE") }
-        ], parties)}
+        ${table(headers, visibleParties)}
       </section>
     </div>
   `;
 
   enableTableSorting(ctx.view);
-  setupSupplierFlow(ctx);
+  setupSupplierFlow(ctx, visibleParties);
 }
 
-function setupSupplierFlow(ctx) {
+function setupSupplierFlow(ctx, parties) {
   const formPanel = document.getElementById("supplierFormPanel");
   const form = document.getElementById("supplierForm");
   if (!form || !formPanel) return;
+  const partyById = new Map(parties.map((party) => [String(party.supplier_id || ""), party]));
 
   ctx.view.querySelectorAll("[data-open-party-form]").forEach((button) => {
     button.addEventListener("click", () => openPartyForm(formPanel, form, button.dataset.openPartyForm));
   });
 
-  document.getElementById("cancelSupplierForm")?.addEventListener("click", () => {
-    form.reset();
-    formPanel.hidden = true;
+  ctx.view.querySelectorAll("[data-edit-party]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const party = partyById.get(button.dataset.editParty);
+      if (!party) return notice("Business record was not found.");
+      openEditForm(formPanel, form, party);
+    });
   });
+
+  ctx.view.querySelectorAll("[data-delete-party]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const party = partyById.get(button.dataset.deleteParty);
+      if (!party) return notice("Business record was not found.");
+      const label = `${partyType(party).toLowerCase()} ${party.supplier_name || party.supplier_id}`;
+      if (!window.confirm(`Delete ${label}? This will archive the record so old orders stay safe.`)) return;
+      setButtonBusy(button, true, "Deleting...");
+      try {
+        await deactivateSupplier(ctx.user, party.supplier_id);
+        notice(`${party.supplier_name || party.supplier_id} deleted from the active directory.`);
+        await render(ctx);
+      } catch (error) {
+        notice(error.message);
+        setButtonBusy(button, false);
+      }
+    });
+  });
+
+  document.getElementById("cancelSupplierForm")?.addEventListener("click", () => closePartyForm(formPanel, form));
 
   form.elements.party_type.addEventListener("change", () => updatePartyFormMode(form));
 
@@ -67,13 +96,16 @@ function setupSupplierFlow(ctx) {
     event.preventDefault();
     const saveButton = form.querySelector("[data-save-party]");
     const payload = normalizePartyInput(formToObject(form));
+    const isEdit = form.dataset.mode === "edit";
 
     if (!form.reportValidity()) return;
-    setButtonBusy(saveButton, true, `Saving ${payload.party_type === "CUSTOMER" ? "customer" : "vendor"}...`);
+    setButtonBusy(saveButton, true, `${isEdit ? "Updating" : "Saving"} ${payload.party_type === "CUSTOMER" ? "customer" : "vendor"}...`);
 
     try {
-      const party = await createSupplier(ctx.user, payload);
-      notice(`${partyType(party) === "CUSTOMER" ? "Customer" : "Vendor"} saved: ${party.supplier_id}.`);
+      const party = isEdit
+        ? await updateSupplier(ctx.user, payload)
+        : await createSupplier(ctx.user, payload);
+      notice(`${partyType(party) === "CUSTOMER" ? "Customer" : "Vendor"} ${isEdit ? "updated" : "saved"}: ${party.supplier_id}.`);
       await render(ctx);
     } catch (error) {
       notice(error.message);
@@ -85,13 +117,47 @@ function setupSupplierFlow(ctx) {
 function openPartyForm(panel, form, partyType = "VENDOR") {
   panel.hidden = false;
   form.reset();
+  form.dataset.mode = "create";
+  form.elements.supplier_id.readOnly = false;
+  form.elements.party_type.disabled = false;
   form.elements.party_type.value = partyType === "CUSTOMER" ? "CUSTOMER" : "VENDOR";
   form.elements.payment_terms.value = "Net 30";
   form.elements.default_currency.value = "USD";
   form.elements.lead_time_expected_days.value = form.elements.party_type.value === "VENDOR" ? "5" : "";
+  setFormCopy(form, `Add ${form.elements.party_type.value === "CUSTOMER" ? "Customer" : "Vendor"}`, "Create one clean business record, then use it in purchase orders or sales orders.", "Save Business");
   updatePartyFormMode(form);
   window.setTimeout(() => form.elements.supplier_name.focus(), 0);
   panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function openEditForm(panel, form, party) {
+  panel.hidden = false;
+  form.reset();
+  form.dataset.mode = "edit";
+  form.elements.party_type.disabled = false;
+  form.elements.party_type.value = partyType(party);
+  form.elements.supplier_id.value = party.supplier_id || "";
+  form.elements.supplier_id.readOnly = true;
+  form.elements.supplier_name.value = party.supplier_name || "";
+  form.elements.contact_name.value = party.contact_name || "";
+  form.elements.email.value = party.email || "";
+  form.elements.phone.value = party.phone || "";
+  form.elements.payment_terms.value = party.payment_terms || "Net 30";
+  form.elements.default_currency.value = party.default_currency || "USD";
+  form.elements.lead_time_expected_days.value = partyType(party) === "VENDOR" ? party.lead_time_expected_days || "5" : "";
+  form.elements.address.value = party.address || "";
+  form.elements.notes.value = party.notes || "";
+  setFormCopy(form, `Edit ${partyType(party) === "CUSTOMER" ? "Customer" : "Vendor"}`, "Update contact, address, terms, notes, and vendor lead-time details.", "Update Business");
+  updatePartyFormMode(form);
+  window.setTimeout(() => form.elements.supplier_name.focus(), 0);
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closePartyForm(panel, form) {
+  form.reset();
+  form.dataset.mode = "create";
+  form.elements.supplier_id.readOnly = false;
+  panel.hidden = true;
 }
 
 function updatePartyFormMode(form) {
@@ -103,16 +169,25 @@ function updatePartyFormMode(form) {
   if (!isVendor) form.elements.lead_time_expected_days.value = "";
 }
 
+function setFormCopy(form, title, help, buttonText) {
+  const titleElement = form.closest("section")?.querySelector("[data-party-form-title]");
+  const helpElement = form.closest("section")?.querySelector("[data-party-form-help]");
+  const saveButton = form.querySelector("[data-save-party]");
+  if (titleElement) titleElement.textContent = title;
+  if (helpElement) helpElement.textContent = help;
+  if (saveButton) saveButton.textContent = buttonText;
+}
+
 function supplierFormPanel() {
   return `
     <section id="supplierFormPanel" class="panel" hidden>
       <div class="panel-header">
         <div>
-          <h2>Add Customer or Vendor</h2>
-          <p class="muted">Create one clean business record, then use it in purchase orders or sales orders.</p>
+          <h2 data-party-form-title>Add Customer or Vendor</h2>
+          <p class="muted" data-party-form-help>Create one clean business record, then use it in purchase orders or sales orders.</p>
         </div>
       </div>
-      <form id="supplierForm" class="form-grid">
+      <form id="supplierForm" class="form-grid" data-mode="create">
         <div class="field">
           <label>Business Type</label>
           <select name="party_type" required>
@@ -149,6 +224,15 @@ function supplierFormPanel() {
         </div>
       </form>
     </section>
+  `;
+}
+
+function partyActions(row) {
+  return `
+    <div class="actions po-actions">
+      <button class="btn secondary small" type="button" data-edit-party="${escapeHtml(row.supplier_id)}">Edit</button>
+      <button class="btn danger small" type="button" data-delete-party="${escapeHtml(row.supplier_id)}">Delete</button>
+    </div>
   `;
 }
 
