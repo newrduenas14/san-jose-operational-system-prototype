@@ -1,4 +1,5 @@
 import * as base from "./api.js?v=pin1";
+import { deactivateSupplier as deactivateSupplierRecord, updateSupplier as updateSupplierRecord } from "./customerVendorActions.js?v=buttons1";
 
 const READ_CACHE_TTL_MS = 45000;
 const readCache = new Map();
@@ -64,6 +65,14 @@ export async function createSupplier(user, input) {
   } catch (error) {
     throw customerVendorSaveError(error);
   }
+}
+
+export async function updateSupplier(user, input) {
+  return mutate(() => updateSupplierRecord(user, input));
+}
+
+export async function deactivateSupplier(user, supplierId) {
+  return mutate(() => deactivateSupplierRecord(user, supplierId));
 }
 
 export async function createPurchaseOrder(user, input) {
