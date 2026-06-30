@@ -275,24 +275,32 @@ function ensureReportStyles() {
     .report-summary-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .report-summary-card,
     .card.report-block,
-    button.report-block { background: #ffffff !important; border: 1px solid #d8e1da !important; border-radius: 12px !important; box-shadow: 0 6px 18px rgba(23,33,27,.05) !important; color: #17211b !important; min-height: 148px; padding: 15px; text-align: left; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+    button.report-block { background: #226b3d !important; border: 1px solid #1f5f37 !important; border-radius: 12px !important; box-shadow: 0 6px 18px rgba(23,33,27,.08) !important; color: #ffffff !important; min-height: 148px; padding: 15px; text-align: left; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
     .report-summary-card:hover,
     .card.report-block:hover,
-    button.report-block:hover { border-color: #9fc4ab !important; box-shadow: 0 10px 24px rgba(23,33,27,.09) !important; transform: translateY(-1px); }
+    button.report-block:hover { background: #267446 !important; border-color: #1b5231 !important; box-shadow: 0 10px 24px rgba(23,33,27,.12) !important; transform: translateY(-1px); }
     .report-summary-card.selected,
     .card.report-block.selected,
-    button.report-block.selected { background: linear-gradient(180deg, #ffffff 0%, #f4faf6 100%) !important; border-color: #186b45 !important; box-shadow: inset 0 4px 0 #186b45, 0 10px 24px rgba(23,33,27,.09) !important; color: #17211b !important; }
+    button.report-block.selected { background: #226b3d !important; border-color: #ffffff !important; box-shadow: inset 0 0 0 2px rgba(255,255,255,.75), 0 10px 24px rgba(23,33,27,.12) !important; color: #ffffff !important; }
+    .report-summary-card *,
+    .card.report-block *,
+    button.report-block * { color: #ffffff !important; }
     .report-summary-card strong,
     .card.report-block strong,
-    button.report-block strong { color: #186b45 !important; display: block; font-size: 34px; letter-spacing: -.04em; line-height: 1; margin: 8px 0 11px; }
-    .report-summary-card h3 { color: #17211b !important; font-size: 16px; font-weight: 850; line-height: 1.2; margin: 0 0 6px; }
+    button.report-block strong { color: #ffffff !important; display: block; font-size: 34px; letter-spacing: -.04em; line-height: 1; margin: 8px 0 11px; }
+    .report-summary-card h3,
     .card.report-block span,
-    button.report-block span { color: #17211b !important; font-size: 15px; font-weight: 850; }
+    button.report-block span { color: #ffffff !important; font-size: 16px; font-weight: 850; line-height: 1.2; margin: 0 0 6px; }
     .report-summary-card small,
     .card.report-block small,
-    button.report-block small { color: #607064 !important; display: block; font-size: 12px; line-height: 1.38; min-height: 33px; }
-    .report-summary-card em { color: #186b45; display: block; font-size: 12px; font-style: normal; font-weight: 850; margin-top: 12px; }
-    .report-card-label { color: #667568 !important; display: block; font-size: 11px; font-weight: 850; letter-spacing: .04em; text-transform: uppercase; }
+    button.report-block small,
+    .report-card-label,
+    .report-summary-card em { color: rgba(255,255,255,.88) !important; }
+    .report-summary-card small,
+    .card.report-block small,
+    button.report-block small { display: block; font-size: 12px; line-height: 1.38; min-height: 33px; }
+    .report-summary-card em { display: block; font-size: 12px; font-style: normal; font-weight: 850; margin-top: 12px; }
+    .report-card-label { display: block; font-size: 11px; font-weight: 850; letter-spacing: .04em; text-transform: uppercase; }
     .report-detail-panel { min-height: 260px; padding: 18px; }
     .report-detail-heading p { margin: 4px 0 0; }
     .formula-note { background: #f8fbf9; border: 1px solid #d8e1da; border-radius: 10px; color: #607064; font-size: 13px; line-height: 1.45; margin-bottom: 14px; padding: 12px 13px; }
