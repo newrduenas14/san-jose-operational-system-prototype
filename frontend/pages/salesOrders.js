@@ -5,8 +5,8 @@ import {
   listSalesOrders,
   listSuppliers,
   salesOrderAction
-} from "../js/api-smooth1.js?v=orders1";
-import { can } from "../js/permissions.js?v=orders1";
+} from "../js/api-smooth1.js?v=send1";
+import { can } from "../js/permissions.js?v=send1";
 import { escapeHtml, formatMoney, formatQuantity, notice, status, table } from "../js/utils.js?v=filters1";
 
 const SALES_UNITS = ["CASE", "BAG", "BOX", "LB", "EACH", "PALLET"];
@@ -15,7 +15,7 @@ const SHIP_METHODS = ["CUSTOMER_PICKUP", "SAN_JOSE_DELIVERY", "LTL_FREIGHT", "PA
 let nextSalesLineId = 1;
 
 export async function render(ctx) {
-  ctx.setTitle("Sales Orders", "Sell available inventory with FEFO lot recommendations");
+  ctx.setTitle("Sales Orders", "Create clean finance and warehouse documents without deducting inventory");
   const [orders, parties, inventoryRows] = await Promise.all([listSalesOrders(), listSuppliers(), inventorySnapshot()]);
   const customers = parties.filter(isActive).filter(isCustomer);
   const inventoryChoices = buildInventoryChoices(inventoryRows);
@@ -28,7 +28,7 @@ export async function render(ctx) {
         <div class="panel-header">
           <div>
             <h2>Sales Orders</h2>
-            <p class="muted">Confirmed orders reserve inventory without deducting it.</p>
+            <p class="muted">Sales Orders reserve/recommend inventory. Actual deduction happens in Send Product after scanning the physical lot.</p>
           </div>
         </div>
         ${table([
@@ -55,7 +55,7 @@ function salesOrderForm(customers, productChoices) {
       <div class="panel-header">
         <div>
           <h2>Create Sales Order</h2>
-          <p class="muted">Choose the product once. The app recommends the FEFO lots needed to cover the order.</p>
+          <p class="muted">Order by cases/boxes/lb. The app recommends matching case weight first, then FEFO lots and spaces.</p>
         </div>
       </div>
       <form id="salesOrderForm">
@@ -125,8 +125,8 @@ function setupSalesOrderBuilder(ctx, customers, inventoryChoices, productChoices
   if (!form) return;
   const container = document.getElementById("salesLineItems");
   const customerMap = new Map(customers.map((customer) => [customer.supplier_id, customer]));
-  const choiceMap = new Map(inventoryChoices.map((choice) => [choice.key, choice]));
   const productMap = new Map(productChoices.map((product) => [product.productId, product]));
+  const choiceMap = new Map(inventoryChoices.map((choice) => [choice.key, choice]));
   if (productChoices.length) appendSalesLine(container, productChoices);
 
   document.getElementById("addSalesLine")?.addEventListener("click", () => {
@@ -165,7 +165,7 @@ function setupSalesOrderBuilder(ctx, customers, inventoryChoices, productChoices
     try {
       const input = collectSalesOrder(form, choiceMap);
       const result = await createSalesOrder(ctx.user, input);
-      notice(`${result.sales_order_id} created with ${result.lines.length} inventory allocation${result.lines.length === 1 ? "" : "s"}.`);
+      notice(`${result.sales_order_id} created. Inventory is reserved/recommended, not deducted.`);
       await render(ctx);
     } catch (error) {
       notice(error.message);
@@ -201,7 +201,7 @@ function appendSalesLine(container, productChoices) {
       <div class="sales-line-facts">
         <span>Available <strong data-available>Choose product</strong></span>
         <span>Total Weight <strong data-total-weight>0 LB</strong></span>
-        <span>FEFO Lots <strong data-fefo>Choose product</strong></span>
+        <span>Recommendation <strong data-fefo>Choose product</strong></span>
         <span>Line Total <strong data-line-total>$0.00</strong></span>
         <span>Gross Profit <strong data-line-profit>$0.00</strong></span>
       </div>
@@ -237,16 +237,13 @@ function applySalesUnit(line) {
 function updateSalesLine(line, inventoryChoices = []) {
   const qty = numericLineValue(line, "qty_ordered");
   const unitPrice = numericLineValue(line, "unit_price");
-  const weight = numericLineValue(line, "unit_weight_lbs");
-  const totalWeight = qty * weight;
   const recommendation = recommendLotsForLine(line, inventoryChoices);
-  const updatedCost = recommendation.unitCost;
-  line.querySelector('[data-line-field="unit_cost"]').value = updatedCost.toFixed(4);
-  line.querySelector("[data-total-weight]").textContent = `${formatNumber(totalWeight)} LB`;
+  line.querySelector('[data-line-field="unit_cost"]').value = recommendation.unitCost.toFixed(4);
+  line.querySelector("[data-total-weight]").textContent = `${formatNumber(recommendation.neededWeight)} LB`;
   line.querySelector("[data-fefo]").textContent = recommendation.status;
   line.querySelector("[data-allocation-preview]").innerHTML = recommendation.html;
   line.querySelector("[data-line-total]").textContent = money(qty * unitPrice);
-  line.querySelector("[data-line-profit]").textContent = money(qty * (unitPrice - updatedCost));
+  line.querySelector("[data-line-profit]").textContent = money(qty * (unitPrice - recommendation.unitCost));
   updateSalesTotals(document.getElementById("salesOrderForm"));
 }
 
@@ -256,12 +253,12 @@ function recommendLotsForLine(line, inventoryChoices) {
   const unit = line.querySelector('[data-line-field="unit_type"]').value;
   const weight = numericLineValue(line, "unit_weight_lbs");
   const neededWeight = qty * weight;
-  if (!productId) return { unitCost: 0, status: "Choose product", html: "Choose a product to see recommended lots." };
-  if (qty <= 0 || weight <= 0) return { unitCost: 0, status: "Enter quantity", html: "Enter a quantity and weight to calculate lot recommendations." };
+  if (!productId) return { unitCost: 0, neededWeight: 0, status: "Choose product", html: "Choose a product to see recommended lots." };
+  if (qty <= 0 || weight <= 0) return { unitCost: 0, neededWeight, status: "Enter quantity", html: "Enter a quantity and weight to calculate lot recommendations." };
 
   const candidates = inventoryChoices
     .filter((choice) => choice.productId === productId && choice.inventoryUnit === "LB")
-    .sort(compareFefoChoices);
+    .sort((a, b) => compareSalesAllocationChoices(a, b, unit, weight));
   const allocations = [];
   let remainingWeight = neededWeight;
   let totalCost = 0;
@@ -276,49 +273,26 @@ function recommendLotsForLine(line, inventoryChoices) {
     remainingWeight -= allocatedWeight;
   });
 
-  if (!allocations.length) {
-    return { unitCost: 0, status: "No stock", html: "No available sellable lots for this product." };
-  }
+  if (!allocations.length) return { unitCost: 0, neededWeight, status: "No stock", html: "No available sellable lots for this product." };
 
-  const averageUnitCost = neededWeight > 0 ? totalCost / qty : 0;
+  const averageUnitCost = qty > 0 ? totalCost / qty : 0;
   const short = remainingWeight > 0.0001;
+  const exactMatches = allocations.filter(({ choice }) => isExactSalesPack(choice, unit, weight)).length;
   const html = `
     <div class="sales-allocation-summary ${short ? "is-short" : ""}">
       ${short
         ? `Short ${escapeHtml(formatNumber(remainingWeight))} LB. Available lots cover ${escapeHtml(formatNumber(neededWeight - remainingWeight))} of ${escapeHtml(formatNumber(neededWeight))} LB.`
-        : `Recommended FEFO split covers ${escapeHtml(formatNumber(qty))} ${escapeHtml(unit)} (${escapeHtml(formatNumber(neededWeight))} LB).`}
+        : `Recommended split covers ${escapeHtml(formatNumber(qty))} ${escapeHtml(unit)} (${escapeHtml(formatNumber(neededWeight))} LB). Exact pack matches are prioritized before fallback lots.`}
     </div>
     <div class="sales-allocation-list">
       ${allocations.map(({ choice, allocatedWeight, allocatedUnits }) => {
         const originalUnits = choice.unitWeight > 0 ? allocatedWeight / choice.unitWeight : 0;
-        return `<span>${escapeHtml(choice.lotId)} @ ${escapeHtml(choice.locationId)}: ${escapeHtml(formatNumber(allocatedUnits))} ${escapeHtml(unit)} / ${escapeHtml(formatNumber(allocatedWeight))} LB <small>(${escapeHtml(formatNumber(originalUnits))} ${escapeHtml(choice.salesUnit)} from lot)</small></span>`;
+        const matchLabel = isExactSalesPack(choice, unit, weight) ? "exact pack" : "fallback pack";
+        return `<span>${escapeHtml(choice.lotId)} @ ${escapeHtml(choice.locationId)}: ${escapeHtml(formatNumber(allocatedUnits))} ${escapeHtml(unit)} / ${escapeHtml(formatNumber(allocatedWeight))} LB <small>(${escapeHtml(formatNumber(originalUnits))} ${escapeHtml(choice.salesUnit)} from lot · ${matchLabel})</small></span>`;
       }).join("")}
     </div>
   `;
-  return {
-    unitCost: averageUnitCost,
-    status: short ? "Short stock" : `${allocations.length} lot${allocations.length === 1 ? "" : "s"}`,
-    html
-  };
-}
-
-function updateSalesTotals(form) {
-  if (!form) return;
-  const totals = Array.from(form.querySelectorAll(".sales-line-item")).reduce((result, line) => {
-    const qty = numericLineValue(line, "qty_ordered");
-    const price = numericLineValue(line, "unit_price");
-    const cost = numericLineValue(line, "unit_cost");
-    result.subtotal += qty * price;
-    result.profit += qty * (price - cost);
-    return result;
-  }, { subtotal: 0, profit: 0 });
-  const taxRate = Number(form.elements.tax_rate_percent.value || 0) / 100;
-  const tax = form.elements.tax_enabled.checked ? totals.subtotal * taxRate : 0;
-  document.getElementById("salesSubtotal").textContent = money(totals.subtotal);
-  document.getElementById("salesTax").textContent = money(tax);
-  document.getElementById("salesProfit").textContent = money(totals.profit);
-  document.getElementById("salesMargin").textContent = `${totals.subtotal > 0 ? (totals.profit / totals.subtotal * 100).toFixed(2) : "0.00"}%`;
-  document.getElementById("salesTotal").textContent = money(totals.subtotal + tax);
+  return { unitCost: averageUnitCost, neededWeight, status: short ? "Short stock" : `${allocations.length} lot${allocations.length === 1 ? "" : "s"}, ${exactMatches} exact`, html };
 }
 
 function collectSalesOrder(form, choiceMap) {
@@ -334,7 +308,7 @@ function collectSalesOrder(form, choiceMap) {
     if (qty <= 0) throw new Error(`Quantity must be greater than zero on line ${index + 1}.`);
     if (weight <= 0) throw new Error(`Unit weight must be greater than zero on line ${index + 1}.`);
     if (price < 0) throw new Error(`Unit price cannot be negative on line ${index + 1}.`);
-    return allocateFefoLots(productId, qty, unit, weight, price, choiceMap, allocatedByChoice, index + 1);
+    return allocateRecommendedLots(productId, qty, unit, weight, price, choiceMap, allocatedByChoice, index + 1);
   });
   return {
     customer_id: form.elements.customer_id.value,
@@ -351,10 +325,10 @@ function collectSalesOrder(form, choiceMap) {
   };
 }
 
-function allocateFefoLots(productId, requestedQty, unit, weight, price, choiceMap, allocatedByChoice, lineNumber) {
+function allocateRecommendedLots(productId, requestedQty, unit, weight, price, choiceMap, allocatedByChoice, lineNumber) {
   const candidates = Array.from(choiceMap.values())
     .filter((choice) => choice.productId === productId && choice.inventoryUnit === "LB")
-    .sort(compareFefoChoices);
+    .sort((a, b) => compareSalesAllocationChoices(a, b, unit, weight));
   const allocations = [];
   let remainingWeight = requestedQty * weight;
 
@@ -374,7 +348,8 @@ function allocateFefoLots(productId, requestedQty, unit, weight, price, choiceMa
       unit_type: unit,
       unit_weight_lbs: weight,
       unit_price: price,
-      unit_cost: choice.baseUnitCost * weight
+      unit_cost: choice.baseUnitCost * weight,
+      notes: isExactSalesPack(choice, unit, weight) ? "Exact pack match." : `Fallback pack: inventory is ${formatNumber(choice.unitWeight)} LB ${choice.salesUnit}.`
     });
     remainingWeight -= allocatedWeight;
   });
@@ -387,7 +362,7 @@ function allocateFefoLots(productId, requestedQty, unit, weight, price, choiceMa
 
 function buildInventoryChoices(rows) {
   const today = startOfDay(new Date());
-  const choices = rows.map((row) => {
+  return rows.map((row) => {
     const lot = row.lot || {};
     const product = row.product || {};
     const availableInventoryQty = Number(row.available_qty ?? row.qty ?? row.current_qty ?? 0);
@@ -420,71 +395,62 @@ function buildInventoryChoices(rows) {
     && choice.availableSalesQty > 0
     && ["ACTIVE", "AVAILABLE"].includes(choice.lotStatus)
     && (!choice.expirationDate || startOfDay(choice.expirationDate) >= today)
-  ).sort((a, b) =>
-    a.productName.localeCompare(b.productName)
-    || a.expirationSort - b.expirationSort
-    || a.receivedSort - b.receivedSort
   );
-
-  const recommendedVariations = new Set();
-  choices.forEach((choice) => {
-    const variation = `${choice.productId}|${choice.salesUnit}|${choice.unitWeight}`;
-    choice.recommended = !recommendedVariations.has(variation);
-    recommendedVariations.add(variation);
-    choice.label = `${choice.recommended ? "[RECOMMENDED] " : ""}${choice.productName} | ${choice.lotId} | ${formatNumber(choice.unitWeight)} LB ${choice.salesUnit} | ${choice.locationId} | ${formatNumber(choice.availableSalesQty)} available | ${choice.expirationDate || "No expiration"}`;
-  });
-  return choices;
 }
 
 function buildProductChoices(inventoryChoices) {
   const products = new Map();
   inventoryChoices.forEach((choice) => {
     if (choice.inventoryUnit !== "LB") return;
-    const current = products.get(choice.productId) || {
-      productId: choice.productId,
-      productName: choice.productName,
-      availableLb: 0,
-      lotCount: 0,
-      defaultSalesUnit: choice.salesUnit || "CASE",
-      defaultUnitWeight: choice.unitWeight || 1
-    };
+    const current = products.get(choice.productId) || { productId: choice.productId, productName: choice.productName, availableLb: 0, lotCount: 0, defaultSalesUnit: choice.salesUnit || "CASE", defaultUnitWeight: choice.unitWeight || 1 };
     current.availableLb += choice.availableInventoryQty;
     current.lotCount += 1;
-    if (choice.recommended) {
+    if (choice.unitWeight > current.defaultUnitWeight) {
       current.defaultSalesUnit = choice.salesUnit || current.defaultSalesUnit;
       current.defaultUnitWeight = choice.unitWeight || current.defaultUnitWeight;
     }
     products.set(choice.productId, current);
   });
-  return Array.from(products.values())
-    .map((product) => ({ ...product, availableLb: Number(product.availableLb.toFixed(4)) }))
-    .sort((a, b) => a.productName.localeCompare(b.productName));
+  return Array.from(products.values()).map((product) => ({ ...product, availableLb: Number(product.availableLb.toFixed(4)) })).sort((a, b) => a.productName.localeCompare(b.productName));
 }
 
-function compareFefoChoices(a, b) {
-  return a.expirationSort - b.expirationSort
+function compareSalesAllocationChoices(a, b, requestedUnit, requestedWeight) {
+  const exactA = isExactSalesPack(a, requestedUnit, requestedWeight) ? 0 : 1;
+  const exactB = isExactSalesPack(b, requestedUnit, requestedWeight) ? 0 : 1;
+  return exactA - exactB
+    || a.expirationSort - b.expirationSort
+    || b.availableInventoryQty - a.availableInventoryQty
     || a.receivedSort - b.receivedSort
     || a.lotId.localeCompare(b.lotId)
     || a.locationId.localeCompare(b.locationId);
+}
+
+function isExactSalesPack(choice, requestedUnit, requestedWeight) {
+  return String(choice.salesUnit || "").toUpperCase() === String(requestedUnit || "").toUpperCase()
+    && Math.abs(Number(choice.unitWeight || 0) - Number(requestedWeight || 0)) < 0.001;
 }
 
 function setupSalesOrderActions(ctx) {
   document.querySelectorAll("[data-sales-action]").forEach((button) => {
     button.addEventListener("click", async () => {
       const { salesOrderId, salesAction } = button.dataset;
-      if (["blSjp", "pickList"].includes(salesAction)) {
+      if (["financePdf", "warehousePdf"].includes(salesAction)) {
         const documentWindow = window.open("", "_blank");
         if (!documentWindow) return notice("Pop-up blocked. Allow pop-ups to open Sales Order documents.");
         try {
           documentWindow.document.write("<p>Preparing Sales Order...</p>");
           const detail = await getSalesOrderDetail(salesOrderId);
           documentWindow.document.open();
-          documentWindow.document.write(salesAction === "pickList" ? printablePickList(detail) : printableBillOfLading(detail));
+          documentWindow.document.write(salesAction === "financePdf" ? printableSalesOrderFinance(detail) : printableSalesOrderWarehouse(detail));
           documentWindow.document.close();
         } catch (error) {
           documentWindow.close();
           notice(error.message);
         }
+        return;
+      }
+      if (salesAction === "sendProduct") {
+        window.location.hash = `sendProduct:${salesOrderId}`;
         return;
       }
       try {
@@ -504,10 +470,10 @@ function actionButtons(ctx, order) {
   const operator = String(ctx.user.role || "").toUpperCase() === "OPERATOR";
   return `
     <div class="actions po-actions">
-      <button class="btn secondary" data-sales-action="blSjp" data-sales-order-id="${escapeHtml(order.sales_order_id)}" type="button">BL SJP</button>
-      <button class="btn secondary" data-sales-action="pickList" data-sales-order-id="${escapeHtml(order.sales_order_id)}" type="button">Pick List</button>
+      <button class="btn secondary" data-sales-action="warehousePdf" data-sales-order-id="${escapeHtml(order.sales_order_id)}" type="button">Warehouse PDF</button>
+      <button class="btn secondary" data-sales-action="financePdf" data-sales-order-id="${escapeHtml(order.sales_order_id)}" type="button">Finance PDF</button>
       ${!operator && orderStatus === "DRAFT" ? actionButton(order, "CONFIRM", "Mark Confirmed") : ""}
-      ${orderStatus === "CONFIRMED" ? actionButton(order, "PICKED", "Mark Picked") : ""}
+      ${["CONFIRMED", "PICKED", "PARTIALLY_PICKED"].includes(orderStatus) ? `<button class="btn" data-sales-action="sendProduct" data-sales-order-id="${escapeHtml(order.sales_order_id)}" type="button">Send Product</button>` : ""}
       ${!operator && orderStatus === "PICKED" ? actionButton(order, "SHIPPED", "Mark Shipped") : ""}
     </div>
   `;
@@ -517,56 +483,65 @@ function actionButton(order, action, label) {
   return `<button class="btn" data-sales-action="${action}" data-sales-order-id="${escapeHtml(order.sales_order_id)}" type="button">${label}</button>`;
 }
 
-export function printableBillOfLading(detail) {
+export function printableSalesOrderFinance(detail) {
   if (!detail) throw new Error("Sales Order was not found.");
+  return printableSalesOrderDocument(detail, { finance: true, title: "SALES ORDER - FINANCE" });
+}
+
+export function printableSalesOrderWarehouse(detail) {
+  if (!detail) throw new Error("Sales Order was not found.");
+  return printableSalesOrderDocument(detail, { finance: false, title: "SALES ORDER - WAREHOUSE" });
+}
+
+function printableSalesOrderDocument(detail, options) {
   const { order, lines } = detail;
+  const finance = Boolean(options.finance);
   const customerName = order.customer?.supplier_name || order.customer_name || "";
-  const shipToAddress = order.shipping_address || order.customer?.address || "";
+  const billTo = [customerName, order.customer_email, order.customer_phone].filter(Boolean).join("\n");
+  const shipTo = [customerName, order.shipping_address || order.customer?.address || ""].filter(Boolean).join("\n");
   const logoUrl = new URL("../logo_San_Jose.png", window.location.href).href;
-  const totals = lines.reduce((result, line) => {
-    const qty = Number(line.qty_ordered || 0);
-    const unit = String(line.unit_type || "").toUpperCase();
-    result.weight += qty * Number(line.unit_weight_lbs || 0);
-    if (["CASE", "BOX"].includes(unit)) result.boxes += qty;
-    return result;
-  }, { boxes: 0, weight: 0 });
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>BL ${escapeHtml(order.bl_folio || order.sales_order_id)}</title>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(order.sales_order_id)} ${options.title}</title>
     <style>
-      @page{size:letter;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#050505;margin:0;font-size:12px}.toolbar{margin:0 0 14px}.toolbar button{padding:9px 15px}.sheet{max-width:760px;margin:auto}.header{position:relative;min-height:128px;text-align:center}.logo{width:255px;max-height:110px;object-fit:contain}.folio{position:absolute;right:4px;top:14px;text-align:left;font-weight:700;font-size:13px}.folio strong{display:block;font-size:29px;line-height:1.05}.company-address{font-weight:700;font-size:12px;margin-top:-5px}.ship-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:20px 0 14px}.ship-box{border:2px solid #050505;min-height:100px}.ship-box h2{font-size:13px;margin:0;padding:5px 8px;border-bottom:2px solid #050505}.ship-box div{padding:8px;font-size:13px;line-height:1.4;white-space:pre-line}.items{width:100%;border-collapse:collapse;table-layout:fixed}.items th,.items td{border:2px solid #050505;padding:6px 7px;height:32px}.items th{font-size:12px;text-align:center}.items th:first-child{width:54%}.items th:nth-child(2){width:15%}.items th:nth-child(3){width:16%}.items th:nth-child(4){width:15%}.number{text-align:center}.product{font-weight:700}.product small{display:block;font-weight:400;margin-top:2px}.totals{display:grid;grid-template-columns:repeat(3,1fr);margin-top:12px;border:2px solid #050505}.totals div{padding:9px 12px;display:flex;justify-content:space-between;border-right:2px solid #050505;font-weight:700}.totals div:last-child{border-right:0}.signatures{margin-top:26px}.line{display:grid;grid-template-columns:105px 1fr;align-items:end;margin-top:18px}.line span:last-child{border-bottom:1px solid #050505;min-height:22px}.signature-row{display:grid;grid-template-columns:1fr 1fr;gap:28px}.muted{font-size:10px;color:#333}@media print{.toolbar{display:none}.sheet{max-width:none}}
-    </style></head><body><div class="toolbar"><button onclick="window.print()">Print BL SJP</button></div><main class="sheet">
-      <header class="header"><img class="logo" src="${escapeHtml(logoUrl)}" alt="San Jose Produce"><div class="folio">FOLIO:<strong>${escapeHtml(order.bl_folio || "PENDING")}</strong></div><div class="company-address">6001 S INTERNATIONAL PKWY SUITE 50<br>MCALLEN, TX 78503</div></header>
-      <section class="ship-grid"><div class="ship-box"><h2>SHIP FROM</h2><div><strong>SAN JOSE PRODUCE &amp; IMPORTS LLC</strong>\n6001 S INTERNATIONAL PKWY SUITE 50\nMCALLEN, TX 78503</div></div><div class="ship-box"><h2>SHIP TO</h2><div><strong>${escapeHtml(customerName)}</strong>\n${escapeHtml(shipToAddress)}</div></div></section>
-      <table class="items"><thead><tr><th>DESCRIPTION</th><th>WEIGHT</th><th>LOTE</th><th>BOXES</th></tr></thead><tbody>${lines.map((line) => {
-        const qty = Number(line.qty_ordered || 0);
-        const unit = String(line.unit_type || "").toUpperCase();
-        const boxes = ["CASE", "BOX"].includes(unit) ? formatNumber(qty) : `${formatNumber(qty)} ${unit}`;
-        return `<tr><td class="product">${escapeHtml(line.product?.product_name || line.product_id)}<small>${escapeHtml(line.product_id)} | ${escapeHtml(line.preferred_location_id || "")}</small></td><td class="number">${formatNumber(qty * Number(line.unit_weight_lbs || 0))} LB</td><td class="number">${escapeHtml(line.preferred_internal_lot_id || "")}</td><td class="number">${escapeHtml(boxes)}</td></tr>`;
-      }).join("")}</tbody></table>
-      <section class="totals"><div><span>TOTAL BOXES</span><strong>${formatNumber(totals.boxes)}</strong></div><div><span>TOTAL PALLETS</span><strong>&nbsp;</strong></div><div><span>TOTAL WEIGHT</span><strong>${formatNumber(totals.weight)} LB</strong></div></section>
-      <section class="signatures"><div class="line"><span>SHIPPER:</span><span>${escapeHtml(displayValue(order.ship_method || ""))}</span></div><div class="line"><span>ADDRESS:</span><span></span></div><div class="signature-row"><div class="line"><span>NAME:</span><span></span></div><div class="line"><span>DATE:</span><span></span></div></div><div class="signature-row"><div class="line"><span>SIGNATURE:</span><span></span></div><div class="line"><span>SO:</span><span>${escapeHtml(order.sales_order_id)}</span></div></div></section>
+      @page{size:letter;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#17211b;margin:0;font-size:12px;background:white}.toolbar{padding:12px}.toolbar button{padding:9px 15px}.sheet{max-width:800px;margin:auto;padding:18px}.doc-header{display:grid;grid-template-columns:1fr auto;gap:18px;border-bottom:3px solid #17211b;padding-bottom:14px}.brand{display:flex;gap:12px;align-items:center}.brand img{width:78px;height:78px;object-fit:contain}.brand h1{font-size:23px;margin:0}.brand p{margin:4px 0 0;line-height:1.35}.doc-title{text-align:right}.doc-title h2{font-size:28px;margin:0}.doc-title strong{display:block;margin-top:7px}.box-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}.box{border:1px solid #b9c8be;border-radius:8px;min-height:92px}.box h3{background:#eaf3ec;border-bottom:1px solid #b9c8be;margin:0;padding:8px 10px;font-size:12px}.box div{padding:10px;white-space:pre-line;line-height:1.4}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}.meta div{border:1px solid #d8e1da;border-radius:8px;padding:8px}.meta span{color:#607064;display:block;font-size:10px;font-weight:700;text-transform:uppercase}.meta strong{display:block;margin-top:3px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d8e1da;padding:8px;text-align:left;vertical-align:top}th{background:#eaf3ec;font-size:11px;text-transform:uppercase}.number{text-align:right}.totals{margin:16px 0 0 auto;width:290px}.totals div{display:flex;justify-content:space-between;padding:7px 0}.grand{border-top:2px solid #17211b;font-size:15px;font-weight:800}.footer-note{margin-top:22px;color:#607064;font-size:11px}@media print{.toolbar{display:none}.sheet{max-width:none;padding:0}}@media(max-width:720px){.sheet{padding:12px}.doc-header,.box-grid{grid-template-columns:1fr}.doc-title{text-align:left}.meta{grid-template-columns:1fr 1fr}th,td{padding:6px;font-size:11px}}
+    </style></head><body><div class="toolbar"><button onclick="window.print()">Print / Save PDF</button></div><main class="sheet">
+      <header class="doc-header"><div class="brand"><img src="${escapeHtml(logoUrl)}" alt="San Jose Produce"><div><h1>San Jose Produce &amp; Imports LLC</h1><p>6001 S International Pkwy Suite 50<br>McAllen, TX 78503</p></div></div><div class="doc-title"><h2>${escapeHtml(options.title)}</h2><strong>${escapeHtml(order.sales_order_id)}</strong><span>Folio ${escapeHtml(order.bl_folio || "")}</span></div></header>
+      <section class="box-grid"><div class="box"><h3>Bill To</h3><div>${escapeHtml(billTo)}</div></div><div class="box"><h3>Ship To</h3><div>${escapeHtml(shipTo)}</div></div></section>
+      <section class="meta"><div><span>Order Date</span><strong>${escapeHtml(formatDate(order.order_date))}</strong></div><div><span>Requested</span><strong>${escapeHtml(formatDate(order.ship_by_date))}</strong></div><div><span>Channel</span><strong>${escapeHtml(displayValue(order.channel))}</strong></div><div><span>Status</span><strong>${escapeHtml(order.status || "")}</strong></div></section>
+      ${finance ? financeTable(order, lines) : warehouseTable(lines)}
+      <p class="footer-note">${finance ? "Finance copy includes prices and totals for billing and QuickBooks support." : "Warehouse copy intentionally hides prices. Scan physical inventory in Send Product before deduction."}</p>
     </main></body></html>`;
 }
 
-function printablePickList(detail) {
-  if (!detail) throw new Error("Sales Order was not found.");
-  const { order, lines } = detail;
-  return printableDocument("Warehouse Pick List", order, lines, true);
+function financeTable(order, lines) {
+  return `<table><thead><tr><th>Line</th><th>Product</th><th>Description</th><th class="number">Qty</th><th class="number">Rate</th><th class="number">Amount</th></tr></thead><tbody>${lines.map((line, index) => `<tr><td>${index + 1}</td><td><strong>${escapeHtml(line.product?.product_name || line.product_id)}</strong><br><small>${escapeHtml(line.product_id)}</small></td><td>${escapeHtml(formatNumber(line.unit_weight_lbs))} LB ${escapeHtml(line.unit_type)} · Lot ${escapeHtml(line.preferred_internal_lot_id || "")}</td><td class="number">${formatNumber(line.qty_ordered)} ${escapeHtml(line.unit_type)}</td><td class="number">${money(line.unit_price)}</td><td class="number">${money(line.line_total)}</td></tr>`).join("")}</tbody></table><section class="totals"><div><span>Subtotal</span><strong>${money(order.subtotal_amount)}</strong></div><div><span>Tax</span><strong>${money(order.tax_amount)}</strong></div><div><span>Shipping</span><strong>${money(order.shipping_amount)}</strong></div><div class="grand"><span>Total</span><strong>${money(order.total_amount)}</strong></div></section>`;
 }
 
-function printableDocument(title, order, lines, pickList) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(order.sales_order_id)} ${title}</title>
-    <style>body{font-family:Arial,sans-serif;color:#17211b;margin:24px}button{padding:9px 14px;margin-bottom:18px}h1{margin:0 0 14px}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;border:1px solid #d8e1da;padding:14px;margin-bottom:18px}.meta span{color:#607064;display:block;font-size:12px;font-weight:700}.meta strong{display:block;margin-top:4px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #d8e1da;padding:8px;text-align:left}th{background:#eaf3ec}.number{text-align:right}.totals{margin:18px 0 0 auto;width:280px}.totals div{display:flex;justify-content:space-between;padding:5px}.grand{border-top:2px solid #17211b}@media print{button{display:none}body{margin:10mm}}</style>
-    </head><body><button onclick="window.print()">Print ${title}</button><h1>${title} ${escapeHtml(order.sales_order_id)}</h1>
-    <section class="meta"><div><span>Customer</span><strong>${escapeHtml(order.customer?.supplier_name || order.customer_name)}</strong></div><div><span>Status</span><strong>${escapeHtml(order.status)}</strong></div><div><span>Order Date</span><strong>${escapeHtml(formatDate(order.order_date))}</strong></div><div><span>Requested Date</span><strong>${escapeHtml(formatDate(order.ship_by_date))}</strong></div><div><span>Channel</span><strong>${escapeHtml(displayValue(order.channel))}</strong></div><div><span>Ship Method</span><strong>${escapeHtml(displayValue(order.ship_method))}</strong></div></section>
-    <table><thead><tr><th>Product</th><th>Lot</th><th>Location</th><th class="number">Qty</th><th>Unit</th><th class="number">Weight</th>${pickList ? "<th>Pick Status</th>" : "<th class=\"number\">Price</th><th class=\"number\">Total</th>"}</tr></thead><tbody>${lines.map((line) => `<tr><td>${escapeHtml(line.product?.product_name || line.product_id)}</td><td>${escapeHtml(line.preferred_internal_lot_id)}</td><td>${escapeHtml(line.preferred_location_id)}</td><td class="number">${formatNumber(line.qty_ordered)}</td><td>${escapeHtml(line.unit_type)}</td><td class="number">${formatNumber(line.unit_weight_lbs)} LB</td>${pickList ? `<td>${escapeHtml(line.line_status)}</td>` : `<td class="number">${money(line.unit_price)}</td><td class="number">${money(line.line_total)}</td>`}</tr>`).join("")}</tbody></table>
-    ${pickList ? "" : `<section class="totals"><div><span>Subtotal</span><strong>${money(order.subtotal_amount)}</strong></div><div><span>Tax</span><strong>${money(order.tax_amount)}</strong></div><div><span>Estimated Gross Profit</span><strong>${money(order.estimated_gross_profit)}</strong></div><div class="grand"><span>Total</span><strong>${money(order.total_amount)}</strong></div></section>`}</body></html>`;
+function warehouseTable(lines) {
+  return `<table><thead><tr><th>Line</th><th>Product</th><th class="number">Qty</th><th>Unit</th><th>Lot</th><th>Space</th><th class="number">Pick Weight</th><th>Status</th></tr></thead><tbody>${lines.map((line, index) => `<tr><td>${index + 1}</td><td><strong>${escapeHtml(line.product?.product_name || line.product_id)}</strong><br><small>${escapeHtml(line.product_id)}</small></td><td class="number">${formatNumber(line.qty_ordered)}</td><td>${escapeHtml(line.unit_type)} / ${formatNumber(line.unit_weight_lbs)} LB</td><td>${escapeHtml(line.preferred_internal_lot_id || "")}</td><td>${escapeHtml(line.preferred_location_id || "")}</td><td class="number">${formatNumber(line.inventory_qty_required || 0)} ${escapeHtml(line.inventory_unit_type || "LB")}</td><td>${escapeHtml(line.line_status || "")}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function updateSalesTotals(form) {
+  if (!form) return;
+  const totals = Array.from(form.querySelectorAll(".sales-line-item")).reduce((result, line) => {
+    const qty = numericLineValue(line, "qty_ordered");
+    const price = numericLineValue(line, "unit_price");
+    const cost = numericLineValue(line, "unit_cost");
+    result.subtotal += qty * price;
+    result.profit += qty * (price - cost);
+    return result;
+  }, { subtotal: 0, profit: 0 });
+  const taxRate = Number(form.elements.tax_rate_percent.value || 0) / 100;
+  const tax = form.elements.tax_enabled.checked ? totals.subtotal * taxRate : 0;
+  document.getElementById("salesSubtotal").textContent = money(totals.subtotal);
+  document.getElementById("salesTax").textContent = money(tax);
+  document.getElementById("salesProfit").textContent = money(totals.profit);
+  document.getElementById("salesMargin").textContent = `${totals.subtotal > 0 ? (totals.profit / totals.subtotal * 100).toFixed(2) : "0.00"}%`;
+  document.getElementById("salesTotal").textContent = money(totals.subtotal + tax);
 }
 
 function updateSalesRemoveButtons(container) {
   const lines = container.querySelectorAll(".sales-line-item");
-  lines.forEach((line) => {
-    line.querySelector("[data-remove-sales-line]").disabled = lines.length === 1;
-  });
+  lines.forEach((line) => { line.querySelector("[data-remove-sales-line]").disabled = lines.length === 1; });
 }
 
 function effectiveExpiration(lot, product) {
@@ -598,34 +573,11 @@ function dateValue(value) {
   return `${year}-${month}-${day}`;
 }
 
-function numericLineValue(line, field) {
-  return Number(line.querySelector(`[data-line-field="${field}"]`)?.value || 0);
-}
-
-function isActive(record) {
-  return record.is_active === undefined || record.is_active === "" || record.is_active === true || String(record.is_active).toUpperCase() === "TRUE";
-}
-
-function isCustomer(record) {
-  return String(record.party_type || "VENDOR").toUpperCase() === "CUSTOMER";
-}
-
-function displayValue(value) {
-  return String(value || "").replaceAll("_", " ");
-}
-
-function todayValue() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function formatDate(value) {
-  return value ? String(value).slice(0, 10) : "";
-}
-
-function formatNumber(value) {
-  return formatQuantity(value);
-}
-
-function money(value) {
-  return formatMoney(value);
-}
+function numericLineValue(line, field) { return Number(line.querySelector(`[data-line-field="${field}"]`)?.value || 0); }
+function isActive(record) { return record.is_active === undefined || record.is_active === "" || record.is_active === true || String(record.is_active).toUpperCase() === "TRUE"; }
+function isCustomer(record) { return String(record.party_type || "VENDOR").toUpperCase() === "CUSTOMER"; }
+function displayValue(value) { return String(value || "").replaceAll("_", " "); }
+function todayValue() { return new Date().toISOString().slice(0, 10); }
+function formatDate(value) { return value ? String(value).slice(0, 10) : ""; }
+function formatNumber(value) { return formatQuantity(value); }
+function money(value) { return formatMoney(value); }
