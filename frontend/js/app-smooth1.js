@@ -1,14 +1,15 @@
 import { warmOperationalCache } from "./api-smooth1.js?v=buttons2";
 import { getSession, signIn, signOut } from "./auth.js?v=pin1";
 import { renderNavigation, renderRoute, configureRouter, navigate } from "./router.js?v=mobilehome1";
-import { allowedPages } from "./permissions.js?v=mobilehome1";
+import { allowedPages } from "./permissions.js?v=send1";
 import { enableTableFilters, enableTableSorting } from "./utils.js?v=buttons1";
 import * as dashboard from "../pages/dashboard.js?v=refine1";
 import * as products from "../pages/products.js?v=qa1";
 import * as suppliers from "../pages/suppliers.js?v=parties3";
 import * as orders from "../pages/orders.js?v=orders1";
 import * as purchaseOrders from "../pages/purchaseOrders.js?v=qa1";
-import * as salesOrders from "../pages/salesOrders.js?v=salesproduct1";
+import * as salesOrders from "../pages/salesOrders.js?v=send1";
+import * as sendProduct from "../pages/sendProduct.js?v=send1";
 import * as receiving from "../pages/receiving.js?v=refine1";
 import * as openingInventory from "../pages/openingInventory.js?v=qa1";
 import * as inventory from "../pages/inventory.js?v=qa1";
@@ -16,7 +17,7 @@ import * as scanner from "../pages/scannerTest.js?v=parties1";
 import * as amazon from "../pages/amazon.js?v=refine1";
 import * as reports from "../pages/reports.js?v=refine1";
 import * as admin from "../pages/admin.js?v=pin1";
-import * as mobileHome from "../pages/mobileHome.js?v=mobilehome1";
+import * as mobileHome from "../pages/mobileHome.js?v=send1";
 
 const view = document.getElementById("view");
 const title = document.getElementById("pageTitle");
@@ -34,6 +35,7 @@ const routes = {
   orders,
   purchaseOrders,
   salesOrders,
+  sendProduct,
   receiving,
   openingInventory,
   inventory,
@@ -61,14 +63,15 @@ function renderSessionIdentity() {
 
 async function renderAppRoute(page) {
   const token = ++renderToken;
-  if (page === "mobileHome" && !usesWarehouseHome()) {
+  const [pageId] = String(page || "").split(":");
+  if (pageId === "mobileHome" && !usesWarehouseHome()) {
     navigate("dashboard");
     return;
   }
   const allowed = allowedPages(user);
   const allowedIds = allowed.map((item) => item.id);
-  const safePage = allowedIds.includes(page) ? page : allowed[0]?.id || "dashboard";
-  if (safePage !== page) {
+  const safePage = allowedIds.includes(pageId) ? pageId : allowed[0]?.id || "dashboard";
+  if (safePage !== pageId) {
     window.location.hash = safePage;
     return;
   }
