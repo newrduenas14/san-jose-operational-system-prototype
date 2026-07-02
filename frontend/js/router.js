@@ -1,4 +1,4 @@
-import { allowedPages } from "./permissions.js?v=mobilehome1";
+import { allowedPages } from "./permissions.js?v=send1";
 
 let currentPage = "dashboard";
 let routes = {};
@@ -45,6 +45,7 @@ function isActiveNavigationPage(pageId) {
 
 export async function renderRoute() {
   const requested = window.location.hash.replace("#", "") || "dashboard";
-  currentPage = routes[requested] ? requested : "dashboard";
-  await onRoute(currentPage);
+  const [pageId] = requested.split(":");
+  currentPage = routes[pageId] ? pageId : "dashboard";
+  await onRoute(requested);
 }
